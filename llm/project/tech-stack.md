@@ -60,4 +60,4 @@ Define concrete technology choices and trade-offs for this phase of ADHD.
 ## Tooling Commands (Baseline)
 - `bun run start` for local web server mode when needed.
 - `bun run tauri:dev` for desktop iteration.
-- Local health command (planned): `bun run adhd:health` to validate `codex`, `git`, `gh` availability.
+- Local health command: `bun run health` validates `codex`, `git`, `gh` availability.

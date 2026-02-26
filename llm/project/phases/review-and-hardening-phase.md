@@ -17,10 +17,10 @@
 1. **Behavior audit**
    - Verify session lifecycle in all terminal states and cancel/retry edge paths.
 2. **Host trust sanity checks**
-   - Confirm codex/git/gh assumptions in normal and missing-tool modes.
+  - Confirm codex/git/gh assumptions in normal and missing-tool modes.
 3. **Security simplification pass**
-  - Validate that only high-risk actions are gated in `release` profile.
-  - Validate that planner outputs cannot alter arbitrary shell beyond codex templates.
+   - Validate that only high-risk actions are gated in `release` profile.
+   - Validate that planner outputs cannot alter arbitrary shell beyond codex templates.
 4. **Data cleanup**
   - Ensure stale sessions, partial outputs, and interrupted logs are handled cleanly.
 5. **Documentation sync**

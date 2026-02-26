@@ -4,7 +4,7 @@
 Establish conventions for code structure, documentation quality, and execution safety in ADHD.
 
 ## Directory Map
-```
+```text
 llm/
 ├── README.md
 ├── project/
@@ -86,5 +86,5 @@ package.json
   - profile gating behavior
 
 ## Change Control Notes
-- Reuse `dicktaint` runtime patterns where equivalent.
+- Reuse `dictation` runtime patterns where equivalent.
 - Do not introduce new auth/security abstractions until the host-trust model is fully stabilized.

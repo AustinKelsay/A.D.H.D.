@@ -1,6 +1,6 @@
 import { readdirSync, statSync } from 'node:fs';
 
-function validateMarkdownFiles(baseDir, checks = []) {
+function collectMarkdownFiles(baseDir, files = []) {
   const stack = [baseDir];
 
   while (stack.length > 0) {
@@ -21,14 +21,14 @@ function validateMarkdownFiles(baseDir, checks = []) {
         continue;
       }
 
-      checks.push(full);
+      files.push(full);
     }
   }
 
-  return checks;
+  return files;
 }
 
-const found = validateMarkdownFiles('.');
+const found = collectMarkdownFiles('.');
 
 if (found.length === 0) {
   console.log('No markdown files found.');
@@ -36,5 +36,7 @@ if (found.length === 0) {
 }
 
 console.log(`Found ${found.length} markdown files.`);
-found.forEach((file) => console.log(`- ${file}`));
+for (const file of found) {
+  console.log(`- ${file}`);
+}
 process.exit(0);

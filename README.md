@@ -2,18 +2,23 @@
 
 Agent Dictation Harness Delegator
 
+## Current milestone
+Current status: setup phase is stable and in runtime handoff mode (as of 2026-02-26).
+
 ## Project Planning
 
-`/Users/plebdev/Desktop/code/A.D.H.D./llm/project/project-overview.md` is the canonical project plan.
+`./llm/project/project-overview.md` is the canonical project plan.
 
 ## Setup Phase Quick Start
+Current status: setup is complete and ready for phase 1 runtime work.
 
 1. `bun install`
 2. `bun run health`
-3. `bun run start`
-4. Open `http://127.0.0.1:3000`
+3. `bun run docs:lint` (optional check that docs discovery is healthy)
+4. `bun run start`
+5. Open `http://127.0.0.1:3000`
 
-## Runtime stub endpoints (phase 0 -> phase 1 transition)
+## Runtime endpoints (smoke-check surface)
 
 - `POST /api/sessions/intent`
 - `GET /api/sessions`
@@ -23,7 +28,7 @@ Agent Dictation Harness Delegator
 
 ### Default codex execution behavior
 
-- `POST /api/sessions/:sessionId/start` runs the configured profile command through a real subprocess.
+- `POST /api/sessions/:sessionId/start` runs the selected session profile as an active `codex` subprocess.
 - `POST /api/sessions/:sessionId/start` accepts optional fields:
   - `args` (array)
   - `timeoutMs`
@@ -43,14 +48,15 @@ Current failure policy: planner/provider failure is a hard fail (no execution wi
 
 Current session states: `queued`, `awaiting_confirmation`, `starting`, `running`, `completed`, `failed`, `cancelled`.
 
-In this architecture, the orchestrator logic is an OpenAI-compatible planning layer that turns transcript/task text into safe codex invocation specs. The execution layer stays the same `codex` CLI worker.
+In this architecture, the orchestrator layer is OpenAI-compatible planning logic that turns transcript/task text into safe codex invocation specs. The execution layer is active and runs the configured `codex` CLI worker.
 
 If you want guaranteed local completion while validating this phase, you can override command to:
 `{ "command": "bash", "args": ["-lc", "echo ok"] }` and avoid depending on codex behavior.
 
 ## Reference docs
 
-- `/Users/plebdev/Desktop/code/A.D.H.D./llm/project/project-overview.md`
-- `/Users/plebdev/Desktop/code/A.D.H.D./llm/project/backlog.md`
-- `/Users/plebdev/Desktop/code/A.D.H.D./llm/project/phases/setup-phase.md`
-- `/Users/plebdev/Desktop/code/A.D.H.D./llm/workflows/dev-env-local.md`
+- `./llm/project/project-overview.md`
+- `./llm/project/backlog.md`
+- `./llm/project/phases/setup-phase.md`
+- `./llm/project/phases/session-runtime-phase.md`
+- `./llm/workflows/dev-env-local.md`

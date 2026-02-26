@@ -3,6 +3,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import {
+  normalizeOpenAIBaseUrl,
+  resolveOrchestratorConfig,
+} from './lib/orchestrator-config.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -12,8 +16,12 @@ const HOST = process.env.HOST || '127.0.0.1';
 const PUBLIC_DIR = path.join(__dirname, 'public');
 
 const MAX_OUTPUT_CHARS = 16000;
+const MAX_BODY_SIZE = Number(process.env.ADHD_MAX_BODY_SIZE_BYTES || 1024 * 1024);
 const DEFAULT_TIMEOUT_MS = Number(process.env.ADHD_SESSION_TIMEOUT_MS || 120000);
 const ORCHESTRATOR_TIMEOUT_MS = Number(process.env.ADHD_ORCHESTRATOR_TIMEOUT_MS || 15000);
+const API_TOKEN = process.env.ADHD_API_TOKEN || '';
+const API_AUTH_HEADER = 'x-adhd-api-token';
+const LOCAL_API_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '::ffff:127.0.0.1']);
 const DEFAULT_STATE = 'queued';
 const SESSION_PROFILES = new Set(['basic', 'edit', 'git', 'release']);
 const SESSION_STATES = new Set([
@@ -34,28 +42,6 @@ const ORCHESTRATOR_PLAN_THRESHOLD = {
   edit: 0.88,
   git: 0.93,
   release: 1,
-};
-const ORCHESTRATOR_PROVIDERS = {
-  ollama: {
-    requiresApiKey: false,
-    baseUrl: 'http://127.0.0.1:11434',
-    model: 'llama3.1',
-  },
-  openai: {
-    requiresApiKey: true,
-    baseUrl: 'https://api.openai.com/v1',
-    model: 'gpt-4o-mini',
-  },
-  openrouter: {
-    requiresApiKey: true,
-    baseUrl: 'https://openrouter.ai/api/v1',
-    model: 'openai/gpt-4o-mini',
-  },
-  'maple-ai': {
-    requiresApiKey: true,
-    baseUrl: 'https://api.maple.ai/v1',
-    model: 'default',
-  },
 };
 const SESSION_TRANSITIONS = {
   queued: new Set(['starting', 'awaiting_confirmation', 'failed', 'cancelled']),
@@ -189,55 +175,9 @@ function normalizeArgs(value) {
   return value.map((part) => String(part));
 }
 
-function normalizeOpenAIBaseUrl(baseUrl) {
-  const normalized = String(baseUrl || '').trim().replace(/\/+$/, '');
-  if (!normalized) return '';
-  const hasV1 = normalized.toLowerCase().endsWith('/v1');
-  return hasV1 ? normalized : `${normalized}/v1`;
-}
-
 function normalizeObject(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
   return value;
-}
-
-function normalizeOrchestratorProvider(value) {
-  const provider = String(value || process.env.ADHD_ORCHESTRATOR_PROVIDER || 'ollama').trim().toLowerCase();
-  if (provider === 'custom') return provider;
-  return ORCHESTRATOR_PROVIDERS[provider] ? provider : 'ollama';
-}
-
-function resolveOrchestratorConfig() {
-  const provider = normalizeOrchestratorProvider(process.env.ADHD_ORCHESTRATOR_PROVIDER);
-  if (provider === 'custom') {
-    const baseUrl = normalizeText(process.env.ADHD_ORCHESTRATOR_BASE_URL || '');
-    const model = normalizeText(process.env.ADHD_ORCHESTRATOR_MODEL || '');
-    const apiKey = normalizeText(process.env.ADHD_ORCHESTRATOR_API_KEY || '');
-    const invalid = !baseUrl;
-
-    return {
-      provider,
-      baseUrl,
-      model: model || 'llama3.1',
-      apiKey,
-      requiresApiKey: false,
-      invalid,
-    };
-  }
-
-  const defaults = ORCHESTRATOR_PROVIDERS[provider] || ORCHESTRATOR_PROVIDERS.ollama;
-  const baseUrl = normalizeText(process.env.ADHD_ORCHESTRATOR_BASE_URL || defaults.baseUrl);
-  const model = normalizeText(process.env.ADHD_ORCHESTRATOR_MODEL || defaults.model);
-  const apiKey = normalizeText(process.env.ADHD_ORCHESTRATOR_API_KEY || '');
-
-  return {
-    provider,
-    baseUrl: baseUrl || defaults.baseUrl,
-    model: model || defaults.model,
-    apiKey,
-    requiresApiKey: defaults.requiresApiKey,
-    invalid: false,
-  };
 }
 
 function parseConfidence(value) {
@@ -417,13 +357,115 @@ function emitResponse(res, statusCode, payload) {
   res.end(body);
 }
 
+function isLoopbackAddress(value) {
+  if (!value) return false;
+  const normalized = String(value).replace(/^::ffff:/, '');
+  return LOCAL_API_HOSTS.has(normalized);
+}
+
+function extractApiToken(req) {
+  const tokenHeader = req.headers.authorization || req.headers[API_AUTH_HEADER];
+  if (!tokenHeader) return '';
+  if (Array.isArray(tokenHeader)) {
+    return String(tokenHeader[0] || '').trim();
+  }
+  const token = String(tokenHeader);
+  if (/^bearer\s+/i.test(token)) {
+    return token.replace(/^bearer\s+/i, '').trim();
+  }
+  return token.trim();
+}
+
+function isApiAuthorized(req) {
+  if (isLoopbackAddress(HOST) || isLoopbackAddress(req?.socket?.remoteAddress)) {
+    return { ok: true };
+  }
+
+  if (!API_TOKEN) {
+    return {
+      ok: false,
+      statusCode: 403,
+      error: 'API token required for non-local API access.',
+    };
+  }
+
+  const presentedToken = extractApiToken(req);
+  if (!presentedToken) {
+    return {
+      ok: false,
+      statusCode: 401,
+      error: 'Missing API token for non-local API access.',
+    };
+  }
+
+  if (presentedToken !== API_TOKEN) {
+    return {
+      ok: false,
+      statusCode: 403,
+      error: 'Invalid API token for non-local API access.',
+    };
+  }
+
+  return { ok: true };
+}
+
+function canStartFromState(session) {
+  return session.state === 'queued' || session.state === 'awaiting_confirmation';
+}
+
+function collectBodyRequestError(error) {
+  const isPayloadTooLarge = error?.statusCode === 413;
+  return {
+    statusCode: isPayloadTooLarge ? 413 : 400,
+    message: isPayloadTooLarge
+      ? 'Payload Too Large'
+      : `Invalid JSON: ${error?.message || 'Bad request'}`,
+  };
+}
+
 function collectBody(req) {
   return new Promise((resolve, reject) => {
-    let data = '';
-    req.on('data', (chunk) => {
-      data += chunk;
-    });
-    req.on('end', () => {
+    let dataLength = 0;
+    const chunks = [];
+
+    const cleanup = () => {
+      req.off('data', onData);
+      req.off('end', onEnd);
+      req.off('error', onError);
+      req.off('aborted', onAborted);
+    };
+
+    const onAborted = () => {
+      cleanup();
+      const aborted = new Error('Request aborted');
+      aborted.statusCode = 400;
+      reject(aborted);
+    };
+
+    const onError = (error) => {
+      cleanup();
+      reject(error);
+    };
+
+    const onData = (chunk) => {
+      const chunkLength = Buffer.isBuffer(chunk) ? chunk.length : Buffer.byteLength(String(chunk));
+      dataLength += chunkLength;
+
+      if (dataLength > MAX_BODY_SIZE) {
+        cleanup();
+        req.destroy();
+        const tooLarge = new Error('Payload Too Large');
+        tooLarge.statusCode = 413;
+        reject(tooLarge);
+        return;
+      }
+
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
+    };
+
+    const onEnd = () => {
+      cleanup();
+      const data = Buffer.concat(chunks).toString('utf8');
       if (!data.trim()) {
         resolve({});
         return;
@@ -433,8 +475,12 @@ function collectBody(req) {
       } catch (error) {
         reject(error);
       }
-    });
-    req.on('error', (error) => reject(error));
+    };
+
+    req.on('data', onData);
+    req.on('end', onEnd);
+    req.on('error', onError);
+    req.on('aborted', onAborted);
   });
 }
 
@@ -656,6 +702,7 @@ function applyOrchestratorPlan(session, plan) {
   session.profile = plan.selectedProfile;
   session.runtime.args = runtimeArgs;
   session.runtime.taskArgToken = template.taskArgToken;
+  session.runtime.command = template.command || session.runtime.command;
   session.orchestrator = {
     ...(session.orchestrator || makeEmptyOrchestratorState()),
     provider: plan.provider,
@@ -827,13 +874,9 @@ async function startSession(sessionId, options = {}) {
     return { ok: false, status: 404, error: `Session not found: ${sessionId}` };
   }
 
-  const canStartFromState = session.state === 'queued' || session.state === 'awaiting_confirmation';
-  if (!canStartFromState) {
-    return {
-      ok: false,
-      status: 409,
-      error: `Cannot start from state: ${session.state}`,
-    };
+  if (!canStartFromState(session)) {
+    session.runtime.error = `Cannot start from state: ${session.state}`;
+    return startSessionError(409, session.runtime.error, session, false, null);
   }
 
   session.runtime.stopRequested = false;
@@ -846,6 +889,11 @@ async function startSession(sessionId, options = {}) {
 
   try {
     plan = await runOrchestratorPlan(session);
+    if (!canStartFromState(session)) {
+      session.runtime.error = `Cannot start from state: ${session.state}`;
+      return startSessionError(409, session.runtime.error, session);
+    }
+
     applyOrchestratorPlan(session, plan);
   } catch (error) {
     const config = resolveOrchestratorConfig();
@@ -878,6 +926,16 @@ async function startSession(sessionId, options = {}) {
   if (plan.decision === ORCHESTRATOR_PLAN_DECISION.requiresConfirmation && !confirm) {
     session.runtime.error = 'Execution requires confirmation from caller.';
     if (session.state !== 'awaiting_confirmation') {
+      if (!canTransition(session.state, 'awaiting_confirmation')) {
+        session.runtime.error = `Cannot transition session from ${session.state} to awaiting_confirmation`;
+        return startSessionError(
+          409,
+          session.runtime.error,
+          session,
+          true,
+          ORCHESTRATOR_PLAN_DECISION.requiresConfirmation,
+        );
+      }
       transitionSession(session, 'awaiting_confirmation', 'planner-requires-confirmation');
     }
     return startSessionError(
@@ -890,6 +948,15 @@ async function startSession(sessionId, options = {}) {
   }
 
   if (session.state !== 'starting') {
+    if (!canTransition(session.state, 'starting')) {
+      return startSessionError(
+        409,
+        `Cannot transition session from ${session.state} to starting`,
+        session,
+        false,
+        ORCHESTRATOR_PLAN_DECISION.autoRun,
+      );
+    }
     transitionSession(session, 'starting', 'planner-approved');
   }
 
@@ -947,7 +1014,8 @@ function handleApiRequest(req, res) {
         emitResponse(res, 201, { ok: true, session: getSession(created.session.sessionId) });
       })
       .catch((error) => {
-        emitResponse(res, 400, { ok: false, error: `Invalid JSON: ${error.message}` });
+        const parsed = collectBodyRequestError(error);
+        emitResponse(res, parsed.statusCode, { ok: false, error: parsed.message });
       });
   }
 
@@ -1001,7 +1069,19 @@ function handleApiRequest(req, res) {
           emitResponse(res, 200, { ok: true, session: result.session });
         })
         .catch((error) => {
-          emitResponse(res, 400, { ok: false, error: `Invalid JSON: ${error.message}` });
+          if (error?.statusCode === 413) {
+            emitResponse(res, 413, { ok: false, error: error.message || 'Payload Too Large' });
+            return;
+          }
+          if (error?.statusCode) {
+            emitResponse(res, error.statusCode, { ok: false, error: error.message || 'Bad request' });
+            return;
+          }
+          if (error instanceof SyntaxError || (error?.message || '').toLowerCase().includes('json')) {
+            emitResponse(res, 400, { ok: false, error: `Invalid JSON: ${error.message}` });
+            return;
+          }
+          emitResponse(res, 500, { ok: false, error: error?.message || 'Internal server error' });
         });
     }
 
@@ -1035,6 +1115,12 @@ export const createServer = (options = {}) => {
     }
 
     if (req.url.startsWith('/api/')) {
+      const auth = isApiAuthorized(req);
+      if (!auth.ok) {
+        emitResponse(res, auth.statusCode, { ok: false, error: auth.error });
+        return;
+      }
+
       if (!isApiMethod(req.method || '')) {
         res.writeHead(405, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify({ ok: false, error: 'Method not allowed on API routes in setup runtime.' }));

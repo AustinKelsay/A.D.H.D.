@@ -29,8 +29,8 @@ Define how users move through ADHD from speech or text input to managed codex ex
 5. Session enters `planning` while orchestrator agent requests a codex invocation plan from an OpenAI-compatible provider.
 6. ADHD validates the plan against profile constraints and confidence thresholds, then auto-runs or waits for user confirmation.
 7. To execute a plan requiring confirmation, the client retries `POST /api/sessions/:id/start` with `{"confirm":true}`.
-7. Session appears in the session list with live log stream.
-8. User monitors or adjusts, then archives/reads completion summary.
+8. Session appears in the session list with live log stream.
+9. User monitors or adjusts, then archives/reads completion summary.
 
 ### 2) Phone flow
 1. Phone connects to orchestrator through paired session channel.

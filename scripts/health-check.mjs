@@ -1,4 +1,9 @@
-import { spawnSync } from 'node:child_process';
+import { accessSync } from 'node:fs';
+import path from 'node:path';
+import {
+  normalizeOpenAIBaseUrl,
+  resolveOrchestratorConfig,
+} from '../lib/orchestrator-config.mjs';
 
 const requiredTools = [
   { name: 'codex', required: true },
@@ -8,72 +13,32 @@ const requiredTools = [
 
 const config = {
   profiles: ['basic', 'edit', 'git', 'release'],
+  schemaVersion: process.env.ADHD_SCHEMA_VERSION || '0.1.0',
   maxConcurrentSessions: Number(process.env.ADHD_MAX_CONCURRENT_SESSIONS || 3),
 };
 
-const ORCHESTRATOR_PROVIDERS = {
-  ollama: {
-    requiresApiKey: false,
-    baseUrl: 'http://127.0.0.1:11434',
-    model: 'llama3.1',
-  },
-  openai: {
-    requiresApiKey: true,
-    baseUrl: 'https://api.openai.com/v1',
-    model: 'gpt-4o-mini',
-  },
-  openrouter: {
-    requiresApiKey: true,
-    baseUrl: 'https://openrouter.ai/api/v1',
-    model: 'openai/gpt-4o-mini',
-  },
-  'maple-ai': {
-    requiresApiKey: true,
-    baseUrl: 'https://api.maple.ai/v1',
-    model: 'default',
-  },
-};
-
-function normalizeText(value) {
-  return String(value || '').trim();
-}
-
-function normalizeOrchestratorProvider(value) {
-  const provider = normalizeText(value || process.env.ADHD_ORCHESTRATOR_PROVIDER || 'ollama');
-  if (provider === 'custom') return provider;
-  return ORCHESTRATOR_PROVIDERS[provider] ? provider : 'ollama';
-}
-
-function resolveOrchestratorConfig() {
-  const provider = normalizeOrchestratorProvider(process.env.ADHD_ORCHESTRATOR_PROVIDER);
-
-  if (provider === 'custom') {
-    return {
-      provider,
-      baseUrl: normalizeText(process.env.ADHD_ORCHESTRATOR_BASE_URL),
-      model: normalizeText(process.env.ADHD_ORCHESTRATOR_MODEL || 'llama3.1'),
-      apiKey: normalizeText(process.env.ADHD_ORCHESTRATOR_API_KEY),
-      requiresApiKey: false,
-      invalid: !normalizeText(process.env.ADHD_ORCHESTRATOR_BASE_URL),
-    };
+function commandExists(command) {
+  if (typeof Bun !== 'undefined' && Bun?.which) {
+    return !!Bun.which(command);
   }
 
-  const defaults = ORCHESTRATOR_PROVIDERS[provider];
-  const baseUrl = normalizeText(process.env.ADHD_ORCHESTRATOR_BASE_URL || defaults.baseUrl);
-  const apiKey = normalizeText(process.env.ADHD_ORCHESTRATOR_API_KEY || '');
-  return {
-    provider,
-    baseUrl,
-    model: normalizeText(process.env.ADHD_ORCHESTRATOR_MODEL || defaults.model),
-    apiKey,
-    requiresApiKey: defaults.requiresApiKey,
-    invalid: defaults.requiresApiKey && !apiKey,
-  };
-}
+  const isWindows = process.platform === 'win32';
+  const candidates = isWindows ? [`${command}.exe`, `${command}.cmd`, `${command}.bat`, command] : [command];
+  const pathEntries = String(process.env.PATH || '').split(path.delimiter).filter(Boolean);
 
-function commandExists(command) {
-  const check = spawnSync('which', [command], { stdio: 'ignore' });
-  return check.status === 0;
+  for (const entry of pathEntries) {
+    for (const candidate of candidates) {
+      const candidatePath = path.join(entry, candidate);
+      try {
+        accessSync(candidatePath);
+        return true;
+      } catch {
+        // continue searching
+      }
+    }
+  }
+
+  return false;
 }
 
 function readJSON(bodyText) {
@@ -87,13 +52,6 @@ function readJSON(bodyText) {
 function sanitizeHeaders(apiKey) {
   if (!apiKey) return {};
   return { Authorization: `Bearer ${apiKey}` };
-}
-
-function normalizeOpenAIBaseUrl(baseUrl) {
-  const normalized = String(baseUrl || '').trim().replace(/\/+$/, '');
-  if (!normalized) return '';
-  const hasV1 = normalized.toLowerCase().endsWith('/v1');
-  return hasV1 ? normalized : `${normalized}/v1`;
 }
 
 async function checkOrchestrator() {
@@ -175,7 +133,7 @@ async function runDiagnostic() {
   const summary = {
     app: 'ADHD',
     mode: process.env.ADHD_HOST_MODE || 'desktop',
-    schemaVersion: config.schemaVersion || '0.1.0',
+    schemaVersion: config.schemaVersion,
     maxConcurrentSessions: config.maxConcurrentSessions,
     ready: results.every((result) => (result.required ? result.available : true)),
     checks: results,

@@ -21,7 +21,7 @@
 3. **Health signals**
   - Add heartbeat endpoint and basic binary/tool/plan-provider health checks.
 4. **Log discipline**
-- Standardize JSON or line-delimited logs with session IDs and profile fields.
+  - Standardize JSON or line-delimited logs with session IDs and profile fields.
 5. **Error taxonomy**
   - Standardize error categories (`missing-tool`, `invalid-profile`, `runtime-crash`, `transport-loss`, `orchestrator-unavailable`, `orchestrator-invalid-plan`).
 

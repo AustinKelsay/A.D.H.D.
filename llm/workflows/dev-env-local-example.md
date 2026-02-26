@@ -10,7 +10,7 @@ Minimal recurring steps to run ADHD locally in MVP mode.
 
 ## Setup
 1. `bun install`
-2. Confirm `bun run adhd:health` (or equivalent local check command once implemented).
+2. Confirm `bun run health`.
 
 ## Development
 - Desktop: `bun run tauri:dev`

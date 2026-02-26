@@ -18,15 +18,15 @@
    - Define normalized task object (`rawText`, `normalizedText`, `workType`, `target`, `constraints`, `profileHint`).
 2. **Orchestrator provider contract**
    - Add a strict JSON input/output contract for an OpenAI-compatible planning endpoint.
-   - Support configurable provider endpoints (`ollama`, `openrouter`, `maple.ai`, custom) behind a stable adapter.
+   - Support configurable provider endpoints (`ollama`, `openrouter`, `maple-ai`, custom) behind a stable adapter.
 3. **Routing rules**
    - Map task categories to execution profiles (`basic`, `edit`, `git`, `release`).
 4. **Template mapping**
-  - Create codex command templates (per profile) and apply deterministic defaults.
+   - Create codex command templates (per profile) and apply deterministic defaults.
 5. **Override handling**
-- Accept explicit user profile and flag overrides at submit time.
-5. **Resilience and preview**
-  - Include provider identity, raw confidence score, required threshold by profile, and requires-confirmation state in the task plan object.
+   - Accept explicit user profile and flag overrides at submit time.
+6. **Resilience and preview**
+   - Include provider identity, raw confidence score, required threshold by profile, and requires-confirmation state in the task plan object.
   - Populate a deterministic `planDecision` value (`autoRun` or `requiresConfirmation`) from confidence + profile policy.
   - Display the planned codex invocation before launch in non-destructive/optional high-risk mode.
   - Expose `requiresConfirmation` and `planDecision` in API responses so the client can request `/start` retry with explicit confirmation.

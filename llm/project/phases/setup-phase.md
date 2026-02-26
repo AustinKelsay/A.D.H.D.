@@ -3,6 +3,8 @@
 ## Objective
 Create a dependable host-trusted baseline so the orchestrator can validate environment prerequisites, accept a canonical session contract, and expose a minimal local entrypoint for phase one smoke checks.
 
+Current status: all phase-0 outcomes are complete in documentation and checks; this phase is in stable handoff mode.
+
 ## Inputs
 - `llm/project/project-overview.md`
 - `llm/project/project-rules.md`
@@ -57,10 +59,20 @@ Create a dependable host-trusted baseline so the orchestrator can validate envir
   - [x] `bun run start` returns the placeholder setup UI.
   - [x] Session schema is ready as a contract for runtime implementation.
 
-## What to do next (still in setup-phase scope)
+## Phase 1 handoff checklist (setup near complete)
 
-1. Keep setup baseline stable while beginning runtime implementation:
+1. Keep the setup baseline stable while beginning runtime implementation:
    - `llm/project/phases/session-runtime-phase.md`: wire session lifecycle transitions from intent to execution.
    - `llm/project/phases/intent-router-phase.md`: finalize execution contract and caller responses for confirmation-required states.
-2. Add a lightweight readiness gate check in local onboarding docs once phase 1 endpoints are introduced.
-3. After these docs and handoffs are in place, move planning ownership to runtime workstream items and mark `setup-phase.md` complete for release to phase 1 planning.
+
+2. Add a lightweight runtime readiness gate in onboarding docs once phase 1 endpoints are introduced.
+
+3. Keep docs in sync with any changed response shapes before enabling phase 1 features in the app shell.
+
+4. Mark this phase complete in `llm/project/backlog.md` once runtime handoff criteria below are verified:
+   - setup health checks are green for required tools,
+   - schema contracts are accepted by startup,
+   - baseline UI/smoke path loads,
+   - session start/stop contracts align with `session-runtime-phase.md`.
+
+5. After the handoff is accepted, move planning ownership to runtime workstream items and continue phase sequencing from `session-runtime-phase.md`.

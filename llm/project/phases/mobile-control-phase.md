@@ -22,6 +22,14 @@
   - Ensure action semantics match desktop (`id` based, same action names, same state labels).
 4. **Pairing/auth**
   - Add lightweight host pairing token flow for phone authorization.
+  - Define token lifecycle requirements:
+    - Tokens are valid for 24 hours by default, configurable via `ADHD_PHONE_TOKEN_TTL_MS`.
+    - The host rotates the active token on successful pairing and on each `POST /api/sessions/:id/start` request if a previous token is older than the configured rotation threshold.
+    - Tokens are revoked on explicit logout, stale heartbeat timeout, or host restart; revocation updates connected clients via session invalidation and rejects all subsequent requests with `401/403`.
+  - Test cases:
+    - Expired token requests are rejected with a clear 401/403 response and `tokenExpired` marker.
+    - New token issuance and rotation changes token value and logs revocation of the prior token.
+    - Revoked token requests fail immediately and cannot perform `start`/`stop`.
 5. **Fallback path**
    - Support typed task input when phone speech capture is unavailable.
 

@@ -90,9 +90,9 @@
 - **Estimate:** 3
 - **Depends on:** ADHD-002, ADHD-003
 - **Acceptance tests (Given / When / Then):**
-- **Given** a session starts in `queued`
-- **When** start request is sent
-- **Then** transitions are only `queued -> awaiting_confirmation -> starting -> running` with confirmation gating.
+  - **Given** a session starts in `queued`
+  - **When** start request is sent
+  - **Then** transitions are only `queued -> awaiting_confirmation -> starting -> running` with confirmation gating.
   - **Given** an invalid transition is requested (e.g., `completed -> running`)
   - **When** transition is applied
   - **Then** runtime rejects it with a typed transition error

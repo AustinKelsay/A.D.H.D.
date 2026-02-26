@@ -9,8 +9,7 @@
     "dev": "bun --watch server.js",
     "health": "bun run scripts/health-check.mjs",
     "test": "bun test",
-    "test:all": "bun run test",
-    "docs:lint": "node scripts/docs-lint.mjs"
+    "docs:lint": "bun scripts/docs-lint.mjs"
   },
   "engines": {
     "bun": ">=1.0.0"
