@@ -81,9 +81,16 @@ create_intent() {
 
 start_session() {
   local session_id=$1
-  curl -sS -X POST "$BASE_URL/api/sessions/$session_id/start" \
+  local response_file status
+  response_file="$(mktemp)"
+  status="$(curl -sS -X POST "$BASE_URL/api/sessions/$session_id/start" \
     -H "Content-Type: application/json" \
-    -d '{"command":"bash","args":["-lc","sleep 30"]}'
+    -d '{"confirm":true,"command":"bash","args":["-lc","sleep 30"]}' \
+    -o "$response_file" \
+    -w '%{http_code}' )"
+  cat "$response_file"
+  echo "___STATUS___$status"
+  rm -f "$response_file"
 }
 ```
 

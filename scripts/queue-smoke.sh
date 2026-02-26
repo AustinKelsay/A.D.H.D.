@@ -53,17 +53,22 @@ create_intent() {
     return 1
   fi
 
+  if [[ ! "$session_id" =~ ^s_[a-z0-9]+_[a-z0-9]+$ ]]; then
+    echo "Invalid session id returned: $session_id" >&2
+    return 1
+  fi
+
   echo "$session_id"
 }
 
 start_session() {
   local session_id="$1"
-  local response_file response status
+  local response_file status
   response_file="$(mktemp)"
 
   status="$(curl -sS -X POST "$BASE_URL/api/sessions/$session_id/start" \
     -H "Content-Type: application/json" \
-    -d '{"command":"bash","args":["-lc","sleep 20"]}' \
+    -d '{"confirm":true,"command":"bash","args":["-lc","sleep 20"]}' \
     -o "$response_file" \
     -w '%{http_code}' \
     )"
@@ -180,8 +185,8 @@ run_mode_reject() {
   fi
 
   local first second
-  first="$(create_intent "reject-smoke first")"
-  second="$(create_intent "reject-smoke second")"
+  first="$(create_intent "reject-smoke first")" || return 1
+  second="$(create_intent "reject-smoke second")" || return 1
 
   local first_resp first_status
   first_resp="$(start_session "$first")" || return 1

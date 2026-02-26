@@ -391,10 +391,7 @@ function extractApiToken(req) {
 }
 
 function isApiAuthorized(req) {
-  const method = String(req?.method || '').toUpperCase();
-  const isSafeMethod = ['GET', 'HEAD', 'OPTIONS'].includes(method);
-
-  if (isLoopbackAddress(req?.socket?.remoteAddress) && isSafeMethod) {
+  if (isLoopbackAddress(req?.socket?.remoteAddress)) {
     return { ok: true };
   }
 
@@ -684,7 +681,7 @@ function runQueuedStartRequests() {
   if (!canAcceptRunnerSlot()) return;
 
   const candidates = queuedStartCandidates()
-    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    .sort((a, b) => (a.runtime?.queuedForStartAt || a.createdAt).localeCompare(b.runtime?.queuedForStartAt || b.createdAt));
 
   for (const session of candidates) {
     if (!canAcceptRunnerSlot()) break;
@@ -1080,7 +1077,7 @@ async function startSession(sessionId, options = {}) {
 
   const startOptions = normalizeStartRequest({
     command: options.command,
-    args: plan.suggestedArgs || options.args || options.commandArgs,
+    args: options.args ?? plan.suggestedArgs ?? options.commandArgs,
     timeoutMs: options.timeoutMs,
     env: options.env,
     workingDirectory: options.workingDirectory,
@@ -1140,7 +1137,6 @@ function stopSession(sessionId) {
   terminateProcess(session);
   clearStartRequest(session);
   transitionSession(session, 'cancelled', 'user-stop-request');
-  runQueuedStartRequests();
   return { ok: true, session: getSession(sessionId) };
 }
 
