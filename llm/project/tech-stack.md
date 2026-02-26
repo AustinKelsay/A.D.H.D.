@@ -13,7 +13,7 @@ Define concrete technology choices and trade-offs for this phase of ADHD.
 
 ### Desktop Shell
 - **Primary:** Tauri v2 with Rust backend (`src-tauri`), Bun for scripts/tasks.
-- **Why:** Existing `dicktaint` foundation already uses this reliably with macOS-native capture and event bridge.
+- **Why:** Existing `dictation` foundation already uses this reliably with macOS-native capture and event bridge.
 - **Alternative:** Electron.
 - **Trade-off:** Better binary footprint and native-permission control vs larger compatibility surface.
 
@@ -35,7 +35,7 @@ Define concrete technology choices and trade-offs for this phase of ADHD.
 - **Trade-off:** Less operational complexity now; SQLite is better when session analytics/persistence grows.
 
 ### AI/Automation Tooling
-- **Primary:** OpenAI-compatible orchestrator service for intent planning and command shaping (`ollama`, `openrouter`, `maple.ai`, or custom).
+- **Primary:** OpenAI-compatible orchestrator service for intent planning and command shaping (`ollama`, `openrouter`, `maple-ai`, or custom).
 - **Execution path:** fixed `codex` CLI on the host for all code actions.
 - **Why:** Keeps execution trust model stable while letting intent planning swap providers easily.
 - **Alternative:** direct LLM-to-shell execution.

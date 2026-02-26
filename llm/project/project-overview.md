@@ -6,7 +6,7 @@
 - **Project:** ADHD — Agent Dictation Harness Delegator
 - **Type:** Voice-driven agent orchestrator and session control surface
 - **Primary stack:** Bun/TypeScript frontend with Rust/Tauri backend (macOS desktop first), provider-pluggable orchestrator with fixed `codex` CLI execution
-- **Approach:** Documentation-first setup from `plebdev/new-project-boilerplate`, with `dicktaint` foundations for native dictation/runtime ergonomics
+- **Approach:** Documentation-first setup from `plebdev/new-project-boilerplate`, with `dictation` foundations for native dictation/runtime ergonomics
 
 ## Mission
 Enable one machine to act as a trusted orchestration host for coding tasks. The orchestrator is an intelligent planning layer and the execution worker is always `codex`.
@@ -34,7 +34,7 @@ You should be able to dictate from desktop or phone, have ADHD convert speech in
 - **Client surface:** desktop and phone present the same controls (sessions, status, logs, quick actions).
 - **Intent bridge:** dictation and task text land in a shared intent queue.
 - **Orchestrator agent:** an OpenAI-compatible planning layer transforms task intent into constrained execution specs and required codex arguments.
-- **Provider adapter:** swappable planning backends (`ollama`, `openrouter`, `maple.ai`, or custom OpenAI-compatible endpoint).
+- **Provider adapter:** swappable planning backends (`ollama`, `openrouter`, `maple-ai`, or custom OpenAI-compatible endpoint).
 - **Session runner:** one codex process per job, with profile + timeout + working directory + output stream.
 - **Session registry:** in-memory and persisted index of each run (state, outputs, exit code, errors).
 
@@ -59,7 +59,7 @@ Default behavior:
 
 This avoids duplicating your machine trust model while still giving runtime control from each session.
 
-## Reuse from `dicktaint`
+## Reuse from `dictation`
 - `src-tauri` shell and command/event wiring model.
 - Runtime branching for native + web paths.
 - Local state/config conventions and SPA-safe serving.
