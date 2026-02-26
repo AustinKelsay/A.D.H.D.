@@ -38,14 +38,18 @@
     },
     "taskIntent": {
       "type": "object",
-      "required": ["rawText", "normalizedText", "source"],
-      "additionalProperties": false,
-      "properties": {
-        "rawText": { "type": "string", "minLength": 1 },
-        "normalizedText": { "type": "string", "minLength": 1 },
-        "source": { "type": "string", "minLength": 1 }
-      }
-    },
+        "required": ["rawText", "normalizedText", "source"],
+        "additionalProperties": false,
+        "properties": {
+          "rawText": { "type": "string", "minLength": 1 },
+          "normalizedText": { "type": "string", "minLength": 1 },
+          "source": { "type": "string", "minLength": 1 },
+          "workType": { "type": ["string", "null"] },
+          "target": { "type": ["string", "null"] },
+          "constraints": { "type": "object" },
+          "profileSuggestions": { "type": ["array", "null"], "items": { "type": "string" } }
+        }
+      },
     "profileHint": { "type": "string" },
     "orchestrator": {
       "type": "object",
@@ -66,6 +70,21 @@
         "error": { "type": ["string", "null"] },
         "planAt": { "type": ["string", "null"], "format": "date-time" }
       }
+    },
+    "summary": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "durationMs": { "type": "number", "minimum": 0 },
+        "exitCode": { "type": ["number", "null"] },
+        "outputPath": { "type": "string", "minLength": 1 },
+        "transcript": { "type": "string" },
+        "failed": { "type": "boolean" },
+        "errorCategory": { "type": ["string", "null"] },
+        "recoveryGuidance": { "type": ["string", "null"] },
+        "failureReason": { "type": ["string", "null"] }
+      },
+      "required": ["durationMs", "exitCode", "outputPath", "transcript", "failed", "errorCategory", "failureReason"]
     },
     "stateHistory": {
       "type": "array",
@@ -107,6 +126,8 @@
         "startedAt": { "type": ["string", "null"], "format": "date-time" },
         "completedAt": { "type": ["string", "null"], "format": "date-time" },
         "process": { "type": ["object", "null"], "additionalProperties": true },
+        "retryCount": { "type": ["number", "null"] },
+        "lastRetryError": { "type": ["string", "null"] },
         "queuedForStart": { "type": "boolean" },
         "queuedForStartAt": { "type": ["string", "null"], "format": "date-time" },
         "queuedStartOptions": {

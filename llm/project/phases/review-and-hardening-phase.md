@@ -26,6 +26,14 @@
 5. **Documentation sync**
   - Align `llm/project/*`, `README`, and implementation notes with shipped behavior.
 
+## Verification entrypoints
+
+- `bun run adapter-sweep` (provider adapter assertions and malformed-plan safety, wraps `scripts/adhd-205-adapter-sweep.sh`)
+- `bun run confidence-gating-sweep` (direct confidence threshold/blocked-planning checks via `scripts/adhd-206-confidence-gating-sweep.sh`)
+- `bun run controls-sweep` (session action controls, wraps `scripts/adhd-304-controls-sweep.sh`)
+- `bun run summary-sweep` (session summary persistence checks via `scripts/adhd-303-summary-sweep.sh`)
+- `bun run hardening-sweep` (includes hardening edge cases and confidence-gating checks via the same ADHD-206 sweep)
+
 ## Exit Criteria
 - Known edge cases are documented and fixed or accepted.
 - No orphaned session records after interrupted shutdowns.
