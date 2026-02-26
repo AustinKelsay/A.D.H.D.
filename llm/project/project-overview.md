@@ -145,10 +145,11 @@ This avoids duplicating your machine trust model while still giving runtime cont
 - Document migration steps and known operational limits.
 
 ## Open decisions
-- Decide whether profile allowlist should stay hard-coded or move to configurable YAML in the first pass.
-- Decide whether phone control should stay LAN-only in MVP or support relay immediately (Tailscale/WireGuard).
-- Decide whether desktop should remain the primary authority with phone as read/write control or permit equal control roles.
-- Decide whether confidence thresholds should stay fixed constants or become configurable before launch.
+- Decide whether to:
+  - keep profile allowlist hard-coded vs move to configurable YAML in the first pass.
+  - keep phone control LAN-only in MVP vs support relay immediately (Tailscale/WireGuard).
+  - keep desktop as primary authority with phone read/write control vs permit equal control roles.
+  - keep confidence thresholds as fixed constants vs make them configurable before launch.
 - Default ordering currently prioritizes the `ollama` provider.
 - Failure mode today causes the orchestrator/provider layer to hard-fail.
 - Confidence rules are: `basic` and `edit` require >=0.88 to auto-run, `git` requires >=0.93, and `release` always requires confirmation.

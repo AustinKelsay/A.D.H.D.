@@ -28,6 +28,13 @@
   - If planner confidence/action policy requires confirmation, keep `queued` sessions in `awaiting_confirmation` until `/start` is retried with confirmation.
   - Confirm terminal states close execution timer and process handles.
   - Keep execution command source-of-truth in session runtime; only accept launch specs that pass planner validation.
+   - Respect `ADHD_START_QUEUE_POLICY`:
+     - `queue` (default): queue new `/start` requests when `ADHD_MAX_CONCURRENT_SESSIONS` is reached.
+     - `reject`: return a queue-full `429` response when max concurrency is reached.
+      - For `reject`, `/api/sessions/:id/start` should emit:
+        - `errorCode: "RUNNER_QUEUE_FULL"`
+        - `queueBlocked: true`
+        - `queueStatus` snapshot including `policy`, `maxConcurrentSessions`, `activeCount`, and `queuedCount`.
 5. **Readiness for codex orchestration**
   - Keep transition logic and response shape stable enough for profile-based codex command evolution and orchestrator-provider metadata in subsequent phases.
 
@@ -37,3 +44,4 @@
 - `POST /api/sessions/:id/start` and `/stop` perform deterministic transitions.
 - Cancel and timeout paths terminate subprocesses cleanly.
 - State transitions are deterministic and idempotent when called repeatedly.
+- `ADHD_START_QUEUE_POLICY=reject` yields dedicated 429 queue-full responses (`errorCode: RUNNER_QUEUE_FULL`) when capacity is exceeded.
