@@ -1,4 +1,5 @@
-import { readdirSync, statSync } from 'node:fs';
+import { readdirSync } from 'node:fs';
+import path from 'node:path';
 
 function collectMarkdownFiles(baseDir, files = []) {
   const stack = [baseDir];
@@ -8,7 +9,7 @@ function collectMarkdownFiles(baseDir, files = []) {
     const entries = readdirSync(dir, { withFileTypes: true });
 
     for (const entry of entries) {
-      const full = `${dir}/${entry.name}`;
+      const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
         if (['node_modules', '.git'].includes(entry.name)) {
           continue;
@@ -39,4 +40,9 @@ console.log(`Found ${found.length} markdown files.`);
 for (const file of found) {
   console.log(`- ${file}`);
 }
+
+// TODO: implement markdown lint checks (link validation, frontmatter/schema checks, and heading formatting).
+console.log(
+  'Docs lint placeholder: placeholder discovery check only. Full markdown lint checks are pending in a follow-up task.',
+);
 process.exit(0);

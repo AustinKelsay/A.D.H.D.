@@ -5,7 +5,6 @@ Track short, shippable milestones from setup to hardening and release-readiness.
 
 ## How to use
 - Keep `setup-phase.md` complete and stable before opening `session-runtime-phase.md` and `intent-router-phase.md`.
-- Keep `setup-phase.md` complete first, then move to `session-runtime-phase.md` and `intent-router-phase.md`.
 - Start `mvp-phase.md` work only after runtime contracts are stable.
 - Keep each phase to 3–5 actionable steps per feature.
 - Each phase must produce a working baseline at the end of completion.

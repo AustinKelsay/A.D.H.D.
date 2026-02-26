@@ -31,7 +31,7 @@
     - New token issuance and rotation changes token value and logs revocation of the prior token.
     - Revoked token requests fail immediately and cannot perform `start`/`stop`.
 5. **Fallback path**
-   - Support typed task input when phone speech capture is unavailable.
+  - Support typed task input when phone speech capture is unavailable.
 
 ## Exit Criteria
 - Phone users can create, inspect, and control sessions.

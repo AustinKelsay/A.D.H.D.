@@ -19,8 +19,8 @@
 2. **Build validation**
    - Validate packaged Tauri build starts, discovers binaries, and passes smoke session test.
 3. **Upgrade notes**
-  - Define how profile/catalog schema changes migrate.
-  - Include migration/rollforward guidance when `ADHD_ORCHESTRATOR_*` configuration changes provider.
+   - Define how profile/catalog schema changes migrate.
+   - Include migration/rollforward guidance when `ADHD_ORCHESTRATOR_*` configuration changes provider.
 4. **Distribution guidance**
    - Document macOS trust/security prompts and setup steps for first run.
 5. **Rollback plan**

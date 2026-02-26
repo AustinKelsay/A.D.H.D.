@@ -5,6 +5,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import {
   normalizeOpenAIBaseUrl,
+  normalizeText,
   resolveOrchestratorConfig,
 } from './lib/orchestrator-config.mjs';
 
@@ -154,10 +155,6 @@ function normalizeWorkingDirectory(value) {
 function normalizeProfile(value) {
   const profile = String(value || runtimeDefaults.profile);
   return SESSION_PROFILES.has(profile) ? profile : null;
-}
-
-function normalizeText(value) {
-  return String(value || '').trim().replace(/\s+/g, ' ');
 }
 
 function normalizeBoolean(value) {
@@ -377,7 +374,7 @@ function extractApiToken(req) {
 }
 
 function isApiAuthorized(req) {
-  if (isLoopbackAddress(HOST) || isLoopbackAddress(req?.socket?.remoteAddress)) {
+  if (isLoopbackAddress(req?.socket?.remoteAddress)) {
     return { ok: true };
   }
 
@@ -826,6 +823,13 @@ async function runCodexRunner(session, options = {}) {
   });
 
   processObj.on('close', (code, signal) => {
+    if (session.runtime.stopRequested && session.runtime.timeoutHandle === null) {
+      session.runtime.exitCode = Number.isFinite(Number(code)) ? Number(code) : null;
+      session.runtime.signal = signal || null;
+      session.runtime.process = null;
+      return;
+    }
+
     if (session.state === 'cancelled') {
       session.runtime.exitCode = Number.isFinite(Number(code)) ? Number(code) : null;
       session.runtime.signal = signal || null;
@@ -857,9 +861,18 @@ async function runCodexRunner(session, options = {}) {
   });
 
   session.runtime.timeoutHandle = setTimeout(() => {
-    if (session.state !== 'running') return;
+    if (
+      session.state !== 'running'
+      || session.runtime.stopRequested
+      || !session.runtime.process
+    ) {
+      session.runtime.timeoutHandle = null;
+      return;
+    }
+
     session.runtime.stopRequested = true;
     session.runtime.error = `Timeout after ${session.runtime.timeoutMs}ms`;
+    session.runtime.timeoutHandle = null;
     terminateProcess(session);
     finalizeSessionTerminal(session, 'failed', 'runner-timeout', {
       exitCode: null,
@@ -996,7 +1009,13 @@ function handleApiRequest(req, res) {
   const pathname = url.pathname;
   const parts = pathname.split('/').filter(Boolean);
 
-  if (req.method === 'POST' && parts[1] === 'sessions' && parts[2] === 'intent') {
+  if (
+    req.method === 'POST'
+    && parts[0] === 'api'
+    && parts[1] === 'sessions'
+    && parts[2] === 'intent'
+    && parts.length === 3
+  ) {
     return collectBody(req)
       .then(hydrateSessionPayload)
       .then((result) => {

@@ -34,22 +34,22 @@ Define how users move through ADHD from speech or text input to managed codex ex
 
 ### 2) Phone flow
 1. Phone connects to orchestrator through paired session channel.
-2. User submits text or uses phone dictation if available.
-3. User sets mode profile and starts run.
-4. User waits through planning and queue/running states.
-5. User views live status stream and can pause/cancel/retry.
-6. User can open session detail from any screen.
+2. Submit text or use phone dictation if available.
+3. Set mode profile and start the run.
+4. Wait through planning and queue/running states.
+5. View the live status stream and pause/cancel/retry as needed.
+6. Open session detail from any screen.
 
 ### 3) Multi-session orchestration flow
-1. User submits multiple tasks with distinct profiles.
+1. Submit multiple tasks with distinct profiles.
 2. Orchestrator enqueues up to configured parallel limit.
 3. Sessions transition independently through lifecycle states.
-4. User can cancel or reprioritize a session manually.
+4. Cancel or reprioritize a session manually.
 5. Completed sessions remain in run catalog with logs and exit metadata.
 
 ### 4) Git/GitHub operational flow
-1. User submits a git-oriented task (e.g., `run tests`, `create branch`, `open PR`).
-2. User selects `git` profile.
+1. Submit a git-oriented task (e.g., `run tests`, `create branch`, `open PR`).
+2. Select the `git` profile.
 3. Orchestrator agent adds a plan summary and confidence signal using configured provider.
 4. Codex runs on host machine using existing auth/tooling.
 5. Log output and command effects are displayed and recorded.

@@ -29,9 +29,9 @@ package.json
 - Function names should be descriptive and stateful with clear auxiliaries (`isLoading`, `hasError`, `isRunning`).
 - Keep conditionals small and explicit.
 - Functions should include short headers or doc comments.
-- Prefer pure/functional composition at the boundaries where process orchestration is not stateful.
-- Prefer pure/functional composition for orchestrator-provider adapters and template resolution.
-- Prefer command handlers that fail fast and emit explicit errors.
+- Use pure/functional composition at the boundaries where process orchestration is not stateful.
+- Apply composition for orchestrator-provider adapters and template resolution.
+- Make command handlers fail fast and emit explicit errors.
 
 ## Session/Permission Conventions
 - Default behavior uses host trust; no attempt to mirror enterprise policy.

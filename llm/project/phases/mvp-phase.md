@@ -10,18 +10,18 @@
 
 ## Steps
 1. **Single input to first-run MVP**
-  - Accept transcribed or typed task text.
-  - Route through orchestrator agent to produce a validated plan before launch.
+   - Accept transcribed or typed task text.
+   - Route through orchestrator agent to produce a validated plan before launch.
 2. **Session runner + stream**
-  - Launch `codex` as a child process per session using the orchestrator-approved invocation.
-  - Stream output to session view and persist to run catalog.
+   - Launch `codex` as a child process per session using the orchestrator-approved invocation.
+   - Stream output to session view and persist to run catalog.
 3. **Session controls**
-  - Add pause/stop/cancel/retry actions.
+   - Add pause/stop/cancel/retry actions.
 4. **Profile governance**
-  - Implement `basic`, `edit`, `git`, `release` mode behavior and preflight confirmation for high-risk runs.
-  - Expose confidence and provider metadata for decisions and auditability.
+   - Implement `basic`, `edit`, `git`, `release` mode behavior and preflight confirmation for high-risk runs.
+   - Expose confidence and provider metadata for decisions and auditability.
 5. **Cross-client controls**
-  - Ensure desktop and phone clients can both list sessions and control active runs.
+   - Ensure desktop and phone clients can both list sessions and control active runs.
 
 ## Exit Criteria
 - At least one session executes successfully end-to-end from phone and desktop.

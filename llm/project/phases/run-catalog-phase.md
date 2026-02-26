@@ -15,7 +15,7 @@
 
 ## Steps (per feature)
 1. **Catalog schema**
-  - Persist session records with task text, profile, intent summary, provider/orchestrator metadata, timestamps, exit code, and artifacts.
+   - Persist session records with task text, profile, intent summary, provider/orchestrator metadata, timestamps, exit code, and artifacts.
 2. **Log linkage**
    - Attach short output window + archived log location to each session.
 3. **Search and filters**
