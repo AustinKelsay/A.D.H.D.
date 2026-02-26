@@ -58,6 +58,7 @@ If you want guaranteed local completion while validating this phase, you can ove
 ## Runtime queue policy smoke checks
 
 Run these with the server listening on `127.0.0.1:3000` and a reachable orchestrator.
+If your environment blocks loopback binding (`listen 127.0.0.1 ... EPERM`), run the smoke script in a host where local binding is allowed, or skip automated smoke checks and run the manual curl sequence below.
 
 You can run the automated version directly:
 
