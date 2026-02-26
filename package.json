@@ -7,6 +7,7 @@
   "scripts": {
     "start": "bun run server.js",
     "dev": "bun --watch server.js",
+    "queue-smoke": "bash scripts/queue-smoke.sh",
     "health": "bun run scripts/health-check.mjs",
     "tauri:dev": "tauri dev",
     "test": "bun test",

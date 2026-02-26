@@ -42,6 +42,8 @@ Current status: setup is complete and ready for phase 1 runtime work.
   - `ADHD_CODEX_COMMAND` (execution command, default `codex`)
   - `ADHD_CODEX_HELP_ARGS`
   - `ADHD_CODEX_TASK_ARG`
+  - `ADHD_MAX_CONCURRENT_SESSIONS` (runner concurrency cap; default `1`)
+  - `ADHD_START_QUEUE_POLICY` (`queue` to enqueue, `reject` to return `429` when full; default `queue`)
 - `ADHD_SESSION_TIMEOUT_MS` sets the default session timeout in milliseconds.
 
 Current failure policy: planner/provider failure is a hard fail (no execution without a valid plan). If the planner returns a plan that requires confirmation, start returns HTTP `409` with `requiresConfirmation: true` and state `awaiting_confirmation` until `/start` is retried with `{"confirm":true}`.
@@ -52,6 +54,75 @@ In this architecture, the orchestrator layer is OpenAI-compatible planning logic
 
 If you want guaranteed local completion while validating this phase, you can override command to:
 `{ "command": "bash", "args": ["-lc", "echo ok"] }` and avoid depending on codex behavior.
+
+## Runtime queue policy smoke checks
+
+Run these with the server listening on `127.0.0.1:3000` and a reachable orchestrator.
+
+You can run the automated version directly:
+
+```bash
+bash scripts/queue-smoke.sh
+```
+
+### Shared helper
+
+```bash
+BASE_URL="http://127.0.0.1:3000"
+
+create_intent() {
+  local label=$1
+  curl -sS -X POST "$BASE_URL/api/sessions/intent" \
+    -H "Content-Type: application/json" \
+    -d "{\"profile\":\"basic\",\"taskText\":\"$label\"}" \
+    | jq -r '.session.sessionId'
+}
+
+start_session() {
+  local session_id=$1
+  curl -sS -X POST "$BASE_URL/api/sessions/$session_id/start" \
+    -H "Content-Type: application/json" \
+    -d '{"command":"bash","args":["-lc","sleep 30"]}'
+}
+```
+
+### 1) Queue mode (default)
+
+```bash
+ADHD_MAX_CONCURRENT_SESSIONS=1 ADHD_START_QUEUE_POLICY=queue bun run start
+```
+
+```bash
+S1=$(create_intent "first queue smoke")
+S2=$(create_intent "second queue smoke")
+start_session "$S1"
+start_session "$S2"
+```
+
+Expected on `$S2`:
+- HTTP `200`
+- `queued: true`
+- `queueStatus.policy` equals `"queue"`
+
+### 2) Reject mode
+
+```bash
+ADHD_MAX_CONCURRENT_SESSIONS=1 ADHD_START_QUEUE_POLICY=reject bun run start
+```
+
+```bash
+S1=$(create_intent "first reject smoke")
+S2=$(create_intent "second reject smoke")
+start_session "$S1"
+start_session "$S2" | jq
+```
+
+Expected on `$S2`:
+- HTTP `429`
+- `ok: false`
+- `errorCode: "RUNNER_QUEUE_FULL"`
+- `queueBlocked: true`
+- `queueStatus.policy` equals `"reject"`
 
 ## Reference docs
 

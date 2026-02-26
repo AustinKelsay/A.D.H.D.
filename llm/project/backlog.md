@@ -129,6 +129,7 @@
   - **Given** over-limit request is submitted while queue is full
   - **When** strategy is configured as deterministic
   - **Then** submission outcome is either `queued` or immediate rejection based on configured policy
+  - Rejection mode must return a queue-full 429 with `errorCode: RUNNER_QUEUE_FULL` and `queueStatus` metadata.
 
 ### ADHD-104: Persist run output and session lifecycle snapshots
 - **Owner:** agent

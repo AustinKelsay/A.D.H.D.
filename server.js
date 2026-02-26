@@ -20,6 +20,9 @@ const MAX_OUTPUT_CHARS = 16000;
 const MAX_BODY_SIZE = Number(process.env.ADHD_MAX_BODY_SIZE_BYTES || 1024 * 1024);
 const DEFAULT_TIMEOUT_MS = Number(process.env.ADHD_SESSION_TIMEOUT_MS || 120000);
 const ORCHESTRATOR_TIMEOUT_MS = Number(process.env.ADHD_ORCHESTRATOR_TIMEOUT_MS || 15000);
+const MAX_CONCURRENT_SESSIONS = parsePositiveInt(process.env.ADHD_MAX_CONCURRENT_SESSIONS, 1);
+const START_QUEUE_POLICY = parseStartQueuePolicy(process.env.ADHD_START_QUEUE_POLICY || 'queue');
+const QUEUE_FULL_ERROR_CODE = 'RUNNER_QUEUE_FULL';
 const API_TOKEN = process.env.ADHD_API_TOKEN || '';
 const API_AUTH_HEADER = 'x-adhd-api-token';
 const LOCAL_API_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '::ffff:127.0.0.1']);
@@ -182,6 +185,20 @@ function parseConfidence(value) {
   if (!Number.isFinite(confidence)) return null;
   if (confidence < 0 || confidence > 1) return null;
   return confidence;
+}
+
+function parseStartQueuePolicy(value) {
+  const normalized = String(value || 'queue').trim().toLowerCase();
+  if (normalized === 'reject' || normalized === 'hard-fail') {
+    return 'reject';
+  }
+  return 'queue';
+}
+
+function parsePositiveInt(value, fallback = 1) {
+  const parsed = Number.parseInt(String(value), 10);
+  if (!Number.isFinite(parsed) || parsed < 1) return fallback;
+  return parsed;
 }
 
 function resolvePlanDecision(profile, confidence, requestedConfirmation = false) {
@@ -564,6 +581,10 @@ function hydrateSessionPayload(payload = {}) {
       completedAt: null,
       timer: null,
       process: null,
+      queuedForStart: false,
+      queuedForStartAt: null,
+      queuedStartOptions: null,
+      awaitingManualConfirmation: false,
     },
   };
 
@@ -606,6 +627,91 @@ function transitionSession(session, to, reason = 'system') {
   }
 
   return session;
+}
+
+function clearStartRequest(session) {
+  session.runtime.queuedForStart = false;
+  session.runtime.queuedForStartAt = null;
+  session.runtime.queuedStartOptions = null;
+}
+
+function normalizeStartRequest(value = {}) {
+  const timeoutMs = Number.isFinite(Number(value.timeoutMs))
+    ? Math.max(1000, Number(value.timeoutMs))
+    : null;
+
+  return {
+    command: normalizeText(value.command),
+    args: normalizeArgs(value.args || value.commandArgs || value.commandArguments),
+    timeoutMs,
+    env: normalizeObject(value.env),
+    workingDirectory: value.workingDirectory || null,
+  };
+}
+
+function canAcceptRunnerSlot() {
+  const active = [...sessionCatalog.values()].filter((session) =>
+    session.state === 'starting' || session.state === 'running'
+  ).length;
+  return active < MAX_CONCURRENT_SESSIONS;
+}
+
+function queuedStartCandidates() {
+  return [...sessionCatalog.values()]
+    .filter((session) => session.runtime?.queuedForStart)
+    .filter((session) => session.state === 'queued'
+      || (session.state === 'awaiting_confirmation' && !session.runtime?.awaitingManualConfirmation));
+}
+
+function queueStatusPayload() {
+  const queued = queuedStartCandidates();
+  const active = [...sessionCatalog.values()].filter((session) =>
+    session.state === 'starting' || session.state === 'running'
+  ).length;
+
+  return {
+    policy: START_QUEUE_POLICY,
+    maxConcurrentSessions: MAX_CONCURRENT_SESSIONS,
+    activeCount: active,
+    queuedCount: queued.length,
+  };
+}
+
+function runQueuedStartRequests() {
+  if (!canAcceptRunnerSlot()) return;
+
+  const candidates = queuedStartCandidates()
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+
+  for (const session of candidates) {
+    if (!canAcceptRunnerSlot()) break;
+    if (!canTransition(session.state, 'starting')) {
+      clearStartRequest(session);
+      continue;
+    }
+
+    const startOptions = session.runtime?.queuedStartOptions || {};
+    transitionSession(session, 'starting', 'runner-slot-acquired');
+    clearStartRequest(session);
+    runCodexRunner(session, startOptions);
+  }
+}
+
+function startRunnerNow(session, options = {}) {
+  if (!canTransition(session.state, 'starting')) {
+    return false;
+  }
+
+  clearStartRequest(session);
+  transitionSession(session, 'starting', 'runner-started');
+  runCodexRunner(session, {
+    command: options.command,
+    args: options.args,
+    timeoutMs: options.timeoutMs,
+    env: options.env,
+    workingDirectory: options.workingDirectory,
+  });
+  return true;
 }
 
 function clearTimeoutHandle(session) {
@@ -751,6 +857,7 @@ function finalizeSessionTerminal(session, toState, reason, processMetadata) {
 
   session.runtime.process = null;
   clearTimeoutHandle(session);
+  runQueuedStartRequests();
 }
 
 function terminateProcess(session) {
@@ -938,6 +1045,8 @@ async function startSession(sessionId, options = {}) {
 
   if (plan.decision === ORCHESTRATOR_PLAN_DECISION.requiresConfirmation && !confirm) {
     session.runtime.error = 'Execution requires confirmation from caller.';
+    session.runtime.awaitingManualConfirmation = true;
+    clearStartRequest(session);
     if (session.state !== 'awaiting_confirmation') {
       if (!canTransition(session.state, 'awaiting_confirmation')) {
         session.runtime.error = `Cannot transition session from ${session.state} to awaiting_confirmation`;
@@ -960,29 +1069,49 @@ async function startSession(sessionId, options = {}) {
     );
   }
 
-  if (session.state !== 'starting') {
-    if (!canTransition(session.state, 'starting')) {
-      return startSessionError(
-        409,
-        `Cannot transition session from ${session.state} to starting`,
-        session,
-        false,
-        ORCHESTRATOR_PLAN_DECISION.autoRun,
-      );
+  const startOptions = normalizeStartRequest({
+    command: options.command,
+    args: plan.suggestedArgs || options.args || options.commandArgs,
+    timeoutMs: options.timeoutMs,
+    env: options.env,
+    workingDirectory: options.workingDirectory,
+  });
+
+  session.runtime.awaitingManualConfirmation = false;
+  if (!canAcceptRunnerSlot()) {
+    if (START_QUEUE_POLICY === 'reject') {
+      clearStartRequest(session);
+      return {
+        ok: false,
+        status: 429,
+        error: 'Runner queue is full. Retry after capacity is available.',
+        errorCode: QUEUE_FULL_ERROR_CODE,
+        queueBlocked: true,
+        queueStatus: queueStatusPayload(),
+        session: getSession(sessionId),
+      };
     }
-    transitionSession(session, 'starting', 'planner-approved');
+
+    session.runtime.queuedForStart = true;
+    session.runtime.queuedForStartAt = nowIso();
+    session.runtime.queuedStartOptions = startOptions;
+    return {
+      ok: true,
+      session: getSession(sessionId),
+      queued: true,
+      reason: 'runner slot full',
+    };
   }
 
-  runCodexRunner(session, {
-    args: plan.suggestedArgs || options.args || options.commandArgs || session.runtime.args,
-    timeoutMs: options.timeoutMs,
-    env: normalizeObject(options.env),
-  }).catch((error) => {
-    finalizeSessionTerminal(session, 'failed', 'runner-unhandled-error', {
-      exitCode: -1,
-      error: `Runner failed: ${error.message}`,
-    });
-  });
+  if (!startRunnerNow(session, startOptions)) {
+    return startSessionError(
+      409,
+      `Cannot transition session from ${session.state} to starting`,
+      session,
+      false,
+      ORCHESTRATOR_PLAN_DECISION.autoRun,
+    );
+  }
 
   return { ok: true, session: getSession(sessionId) };
 }
@@ -1000,7 +1129,9 @@ function stopSession(sessionId) {
   session.runtime.stopRequested = true;
   clearTimeoutHandle(session);
   terminateProcess(session);
+  clearStartRequest(session);
   transitionSession(session, 'cancelled', 'user-stop-request');
+  runQueuedStartRequests();
   return { ok: true, session: getSession(sessionId) };
 }
 
@@ -1082,10 +1213,25 @@ function handleApiRequest(req, res) {
             if (result.session) {
               errorResponse.session = result.session;
             }
+            if (result.queueStatus) {
+              errorResponse.queueStatus = result.queueStatus;
+            }
+            if (result.errorCode) {
+              errorResponse.errorCode = result.errorCode;
+            }
+            if (result.queueBlocked) {
+              errorResponse.queueBlocked = result.queueBlocked;
+            }
             emitResponse(res, result.status || 400, errorResponse);
             return;
           }
-          emitResponse(res, 200, { ok: true, session: result.session });
+          const successResponse = { ok: true, session: result.session };
+          if (result.queued) {
+            successResponse.queued = true;
+            successResponse.reason = result.reason || 'start queued due to runner capacity';
+            successResponse.queueStatus = queueStatusPayload();
+          }
+          emitResponse(res, 200, successResponse);
         })
         .catch((error) => {
           if (error?.statusCode === 413) {
