@@ -9,6 +9,11 @@
     "dev": "bun --watch server.js",
     "queue-smoke": "bash scripts/queue-smoke.sh",
     "health": "bun run scripts/health-check.mjs",
+    "hardening-sweep": "bash scripts/hardening-sweep.sh",
+    "adapter-sweep": "bash scripts/adhd-205-adapter-sweep.sh",
+    "confidence-gating-sweep": "bash scripts/adhd-206-confidence-gating-sweep.sh",
+    "controls-sweep": "bash scripts/adhd-304-controls-sweep.sh",
+    "summary-sweep": "bash scripts/adhd-303-summary-sweep.sh",
     "tauri:dev": "tauri dev",
     "test": "bun test",
     "docs:lint": "bun scripts/docs-lint.mjs"

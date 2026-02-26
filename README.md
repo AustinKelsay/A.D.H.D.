@@ -24,7 +24,27 @@ Current status: setup is complete and ready for phase 1 runtime work.
 - `GET /api/sessions`
 - `GET /api/sessions/:sessionId`
 - `POST /api/sessions/:sessionId/start`
+- `POST /api/sessions/:sessionId/preview`
 - `POST /api/sessions/:sessionId/stop`
+- `POST /api/sessions/:sessionId/cancel` (alias for stop)
+- `POST /api/sessions/:sessionId/retry`
+- `POST /api/sessions/:sessionId/rerun`
+- `GET /api/sessions/:sessionId/output` (adds optional `stream=combined|stdout|stderr`)
+- `GET /api/sessions/events` (live session state/output stream, SSE)
+
+`GET /api/sessions` also accepts:
+- `profile` (exact match, e.g. `git`)
+- `from` (ISO timestamp lower bound)
+- `to` (ISO timestamp upper bound)
+- `sort` (`newest` or `oldest`, default `newest`)
+- `POST /api/pair/request` (local clients create a short-lived API token for non-loopback callers)
+- `GET /api/mobile/sessions` (mobile list with progress projection)
+- `GET /api/mobile/sessions/:sessionId`
+- `POST /api/mobile/sessions/:sessionId/start`
+- `POST /api/mobile/sessions/:sessionId/cancel` (alias for stop)
+- `POST /api/mobile/sessions/:sessionId/retry`
+- `POST /api/mobile/sessions/:sessionId/rerun`
+- `GET /api/mobile/sessions/events` (mobile SSE stream with mobile projection)
 
 ### Default codex execution behavior
 
@@ -34,19 +54,68 @@ Current status: setup is complete and ready for phase 1 runtime work.
   - `timeoutMs`
   - `env` (object)
   - `confirm` (boolean): set `true` to proceed when confidence requires manual confirmation.
+- Completed/failed/cancelled terminal sessions receive a persisted `summary` object with:
+  - `durationMs`
+  - `exitCode`
+  - `outputPath`
+  - `transcript`
+  - `failed`
+  - `errorCategory`
+  - `recoveryGuidance`
+  - `failureReason`
+  - Transcript artifacts are written to `outputPath`.
 - Defaults can be tuned with environment variables:
-  - `ADHD_ORCHESTRATOR_PROVIDER` (provider mode: `ollama`, `openai`, `openrouter`, `maple-ai`, or custom; default `ollama`)
-  - `ADHD_ORCHESTRATOR_BASE_URL` (OpenAI-compatible endpoint URL)
-  - `ADHD_ORCHESTRATOR_API_KEY` (optional auth token for hosted providers)
-  - `ADHD_ORCHESTRATOR_MODEL` (model name used by the planner/intent orchestrator)
-  - `ADHD_CODEX_COMMAND` (execution command, default `codex`)
-  - `ADHD_CODEX_HELP_ARGS`
-  - `ADHD_CODEX_TASK_ARG`
-  - `ADHD_MAX_CONCURRENT_SESSIONS` (runner concurrency cap; default `1`)
-  - `ADHD_START_QUEUE_POLICY` (`queue` to enqueue, `reject` to return `429` when full; default `queue`)
+- `ADHD_ORCHESTRATOR_PROVIDER` (provider mode: `ollama`, `openai`, `openrouter`, `maple-ai`, or custom; default `ollama`)
+- `ADHD_ORCHESTRATOR_BASE_URL` (OpenAI-compatible endpoint URL)
+- `ADHD_ORCHESTRATOR_API_KEY` (optional auth token for hosted providers)
+- `ADHD_ORCHESTRATOR_MODEL` (model name used by the planner/intent orchestrator)
+- `ADHD_ORCHESTRATOR_CHAT_PATH` (optional chat completion endpoint path override)
+- `ADHD_ORCHESTRATOR_MODELS_PATH` (optional models endpoint path override)
+- `ADHD_OPENROUTER_REFERER` or `ADHD_ORCHESTRATOR_OPENROUTER_REFERER` (optional OpenRouter referer header)
+- `ADHD_OPENROUTER_TITLE` or `ADHD_ORCHESTRATOR_OPENROUTER_TITLE` (optional OpenRouter title header)
+- `ADHD_MAPLE_AI_AUTH_HEADER` (optional maple-ai auth header name)
+- `ADHD_ORCHESTRATOR_CUSTOM_AUTH_HEADER` (optional custom provider auth header name)
+- `ADHD_CODEX_COMMAND` (execution command, default `codex`)
+- `ADHD_CODEX_<PROFILE>_COMMAND` (profile override: `BASIC`, `EDIT`, `GIT`, `RELEASE`)
+- `ADHD_CODEX_HELP_ARGS`
+- `ADHD_CODEX_<PROFILE>_ARGS` (profile override args for base runtime template)
+- `ADHD_CODEX_<PROFILE>_GUARD_ARGS` (profile override guard args)
+- `ADHD_CODEX_<PROFILE>_TASK_ARG` (profile override task token)
+- `ADHD_CODEX_GUARD_ARGS` (fallback guard args)
+- `ADHD_CODEX_TASK_ARG`
+- `ADHD_SESSION_PERSIST_PATH` (optional disk snapshot path; defaults to `./data/sessions.json`)
+- `ADHD_SESSION_PERSIST_WRITE_DELAY_MS` (debounced persistence delay; default `250`)
+- `ADHD_SESSION_RETENTION_DAYS` (terminal session age retention in days; `0` disables)
+- `ADHD_SESSION_RETENTION_MAX_COUNT` (max terminal sessions retained; `0` disables)
+- `ADHD_RUNNER_RETRY_ENABLED` (`true`/`false`; default `false`)
+- `ADHD_RUNNER_MAX_RETRIES` (max retry attempts after first spawn failure; default `1`, minimum `0`)
+- `ADHD_RUNNER_RETRY_DELAY_MS` (delay between retries in ms; default `200`)
+- `ADHD_RUNNER_TIMEOUT_TERMINAL_STATE` (`failed` or `cancelled`; default `failed`)
+- `ADHD_PAIR_TOKEN_TTL_MS` (pairing token lifetime in ms; default `600000`)
+- `ADHD_MAX_CONCURRENT_SESSIONS` (runner concurrency cap; default `1`)
+- `ADHD_START_QUEUE_POLICY` (`queue` to enqueue, `reject` to return `429` when full; default `queue`)
+- `ADHD_RETRY_ACTION_IDEMPOTENCY_MS` (dedupe window for concurrent retry actions by sessionId; default `30000`)
 - `ADHD_SESSION_TIMEOUT_MS` sets the default session timeout in milliseconds.
+- `ADHD_MOBILE_ACTION_IDEMPOTENCY_MS` controls dedupe window for `x-adhd-action-id` mobile action replays; defaults to `30000`.
 
 Current failure policy: planner/provider failure is a hard fail (no execution without a valid plan). If the planner returns a plan that requires confirmation, start returns HTTP `409` with `requiresConfirmation: true` and state `awaiting_confirmation` until `/start` is retried with `{"confirm":true}`.
+
+Failure categories are now surfaced on recovery-oriented fields:
+- Terminal/session summaries include `errorCategory` plus `recoveryGuidance`.
+- Validation-level failures (such as `POST /api/sessions/intent` with missing/invalid profile) include `errorCategory` and `recoveryGuidance`.
+- Planning or transport failures include `errorCategory` such as `missing-tool`, `invalid-profile`, or `transport-loss`.
+
+Server restarts restore sessions from the persisted snapshot; terminal (`completed`/`failed`/`cancelled`) sessions remain stable, while active (`starting`/`running`) sessions are reconciled to `failed` with `errorCategory: server-restart` and recovery guidance for the next action.
+
+Runner start failures can be retried when `ADHD_RUNNER_RETRY_ENABLED=true`, with bounded backoff configured by `ADHD_RUNNER_MAX_RETRIES` and `ADHD_RUNNER_RETRY_DELAY_MS`. Retry errors are kept in `session.runtime.lastRetryError` and session remains in `starting` until final decision.
+
+On runner timeout (`ADHD_SESSION_TIMEOUT_MS`), terminal behavior is controlled by `ADHD_RUNNER_TIMEOUT_TERMINAL_STATE` (`failed` default, or `cancelled`).
+
+`POST /api/sessions/:sessionId/preview` performs a planning pass only (no runner start), and returns `{ ok: true, plan: ... }` with the projected codex invocation.
+- `POST /api/sessions/:sessionId/rerun` can clone and relaunch from an existing terminal session. You can optionally pass a different profile:
+  - `{"profile":"edit"}`
+
+When confirmation is required, `/start` errors include `planPreview` so clients can render exactly what would be executed before retrying with `{"confirm": true}`.
 
 Current session states: `queued`, `awaiting_confirmation`, `starting`, `running`, `completed`, `failed`, `cancelled`.
 
@@ -64,6 +133,64 @@ You can run the automated version directly:
 
 ```bash
 bash scripts/queue-smoke.sh
+```
+
+## Verification sweeps
+
+### Phase 2 provider adapter coverage (ADHD-205)
+
+```bash
+bash scripts/adhd-205-adapter-sweep.sh
+```
+
+Or via npm script:
+
+```bash
+bun run adapter-sweep
+```
+
+### Phase 2 confidence gating coverage (ADHD-206)
+
+```bash
+bash scripts/adhd-206-confidence-gating-sweep.sh
+```
+
+Or via npm script:
+
+```bash
+bun run confidence-gating-sweep
+```
+
+### Phase 3 controls coverage (ADHD-304)
+
+```bash
+bash scripts/adhd-304-controls-sweep.sh
+```
+
+Or via npm script:
+
+```bash
+bun run controls-sweep
+```
+
+### Phase 3 summary persistence coverage (ADHD-303)
+
+```bash
+bash scripts/adhd-303-summary-sweep.sh
+```
+
+Or via npm script:
+
+```bash
+bun run summary-sweep
+```
+
+### Hardening verification sweep (ADHD-602)
+
+Run the targeted hardening checks for recovery/reconnect behavior:
+
+```bash
+bun run hardening-sweep
 ```
 
 ### Shared helper

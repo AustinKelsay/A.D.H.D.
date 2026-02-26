@@ -32,6 +32,11 @@
   - Expose `requiresConfirmation` and `planDecision` in API responses so the client can request `/start` retry with explicit confirmation.
   - On planner/provider failure, return explicit failed-planning state and do not continue.
 
+### Verification coverage
+- `bash scripts/adhd-204-launch-preview-sweep.sh` (preview surface behavior and risky-session gating)
+- `bash scripts/adhd-205-adapter-sweep.sh` (provider-agnostic planning requests, header/model/endpoint matrix, malformed-plan hard-fail)
+- `bash scripts/adhd-206-confidence-gating-sweep.sh` (confidence thresholds and blocked planning failure signaling)
+
 ## Exit Criteria
 - Same input text yields stable, inspectable task output.
 - Wrong or unsupported task types fail fast with clear re-prompt text.

@@ -237,6 +237,7 @@
   - **Given** provider returns malformed JSON
   - **When** validation runs
   - **Then** session enters failed planning state with user-visible error and remediation
+- **Verification coverage:** `scripts/adhd-205-adapter-sweep.sh`
 
 ### ADHD-206: Enforce planner confidence gating
 - **Owner:** agent
@@ -255,6 +256,7 @@
   - **Given** confidence is missing
   - **When** planning completes
   - **Then** session enters blocked-planning-failed state and surfaces remediation
+- **Verification coverage:** `scripts/adhd-206-confidence-gating-sweep.sh`
 
 ## Phase 3 — MVP
 
@@ -302,6 +304,7 @@
   - **Given** UI opens completed session detail
   - **When** data is loaded
   - **Then** summary fields are non-null and match runtime metadata
+- **Verification coverage:** `scripts/adhd-303-summary-sweep.sh`
 
 ### ADHD-304: Add basic session controls
 - **Owner:** agent
@@ -317,6 +320,7 @@
   - **Given** a completed session
   - **When** user opens details
   - **Then** details render same lifecycle timeline and output links
+- **Verification coverage:** `scripts/adhd-304-controls-sweep.sh`
 
 ## Phase 4 — Mobile Control and Auth
 

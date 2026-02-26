@@ -1,7 +1,8 @@
 import { accessSync, constants } from 'node:fs';
 import path from 'node:path';
 import {
-  normalizeOpenAIBaseUrl,
+  buildOrchestratorEndpoint,
+  buildOrchestratorHeaders,
   resolveOrchestratorConfig,
 } from '../lib/orchestrator-config.mjs';
 
@@ -49,18 +50,16 @@ function readJSON(bodyText) {
   }
 }
 
-function sanitizeHeaders(apiKey) {
-  if (!apiKey) return {};
-  return { Authorization: `Bearer ${apiKey}` };
-}
-
 async function checkOrchestrator() {
   const orchestratorConfig = resolveOrchestratorConfig();
-  const headers = sanitizeHeaders(orchestratorConfig.apiKey);
+  const headers = buildOrchestratorHeaders(orchestratorConfig);
   const timeoutMs = Number(process.env.ADHD_ORCHESTRATOR_TIMEOUT_MS || 8000);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  const endpoint = `${normalizeOpenAIBaseUrl(orchestratorConfig.baseUrl)}/models`;
+  const endpoint = buildOrchestratorEndpoint(
+    orchestratorConfig,
+    orchestratorConfig.modelsPath || '/models',
+  );
 
   try {
     const response = await fetch(endpoint, {
@@ -105,7 +104,7 @@ async function checkOrchestrator() {
       required: true,
       available: false,
       remediation: orchestratorConfig.invalid
-        ? `Invalid orchestrator configuration for ${orchestratorConfig.provider}: missing base URL`
+        ? `Invalid orchestrator configuration for ${orchestratorConfig.provider}: ${orchestratorConfig.invalidReason}`
         : error.message,
       details: {
         provider: orchestratorConfig.provider,
