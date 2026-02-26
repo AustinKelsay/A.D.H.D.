@@ -17,9 +17,9 @@ const HOST = process.env.HOST || '127.0.0.1';
 const PUBLIC_DIR = path.join(__dirname, 'public');
 
 const MAX_OUTPUT_CHARS = 16000;
-const MAX_BODY_SIZE = Number(process.env.ADHD_MAX_BODY_SIZE_BYTES || 1024 * 1024);
-const DEFAULT_TIMEOUT_MS = Number(process.env.ADHD_SESSION_TIMEOUT_MS || 120000);
-const ORCHESTRATOR_TIMEOUT_MS = Number(process.env.ADHD_ORCHESTRATOR_TIMEOUT_MS || 15000);
+const MAX_BODY_SIZE = parsePositiveInt(process.env.ADHD_MAX_BODY_SIZE_BYTES, 1024 * 1024);
+const DEFAULT_TIMEOUT_MS = parsePositiveInt(process.env.ADHD_SESSION_TIMEOUT_MS, 120000);
+const ORCHESTRATOR_TIMEOUT_MS = parsePositiveInt(process.env.ADHD_ORCHESTRATOR_TIMEOUT_MS, 15000);
 const MAX_CONCURRENT_SESSIONS = parsePositiveInt(process.env.ADHD_MAX_CONCURRENT_SESSIONS, 1);
 const START_QUEUE_POLICY = parseStartQueuePolicy(process.env.ADHD_START_QUEUE_POLICY || 'queue');
 const QUEUE_FULL_ERROR_CODE = 'RUNNER_QUEUE_FULL';
@@ -391,7 +391,10 @@ function extractApiToken(req) {
 }
 
 function isApiAuthorized(req) {
-  if (isLoopbackAddress(req?.socket?.remoteAddress)) {
+  const method = String(req?.method || '').toUpperCase();
+  const isSafeMethod = ['GET', 'HEAD', 'OPTIONS'].includes(method);
+
+  if (isLoopbackAddress(req?.socket?.remoteAddress) && isSafeMethod) {
     return { ok: true };
   }
 
@@ -542,7 +545,7 @@ function hydrateSessionPayload(payload = {}) {
   const command = normalizeText(profileTemplate.command || 'codex');
 
   const session = {
-    sessionId: payload.sessionId || makeSessionId(),
+    sessionId: makeSessionId(),
     profile,
     workingDirectory,
     state: runtimeDefaults.state,
@@ -746,17 +749,23 @@ function getSession(sessionId) {
   return scrubSessionForTransport(session);
 }
 
-function createSession(sessionInput) {
-  const hydrated = hydrateSessionPayload(sessionInput);
+function createSession(sessionInput, options = {}) {
+  const hydrated = options.preHydrated ? { ok: true, session: sessionInput } : hydrateSessionPayload(sessionInput);
   if (!hydrated.ok) return hydrated;
 
-  const validationError = validateSession(hydrated.session);
+  const candidate = { ...hydrated.session };
+  candidate.sessionId = candidate.sessionId || makeSessionId();
+  while (sessionCatalog.has(candidate.sessionId)) {
+    candidate.sessionId = makeSessionId();
+  }
+
+  const validationError = validateSession(candidate);
   if (validationError) {
     return { ok: false, error: validationError };
   }
 
-  sessionCatalog.set(hydrated.session.sessionId, hydrated.session);
-  return { ok: true, session: hydrated.session };
+  sessionCatalog.set(candidate.sessionId, candidate);
+  return { ok: true, session: candidate };
 }
 
 function resolveRunnerArgs(session, options) {
@@ -1155,7 +1164,7 @@ function handleApiRequest(req, res) {
           return;
         }
 
-        const created = createSession(result.session);
+        const created = createSession(result.session, { preHydrated: true });
         if (!created.ok) {
           emitResponse(res, 400, { ok: false, error: created.error, phase: 'session-runtime' });
           return;

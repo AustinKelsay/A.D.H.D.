@@ -15,9 +15,15 @@ llm/
 │   ├── project-rules.md
 │   └── phases/
 │       ├── README.md
+│       ├── session-runtime-phase.md
 │       ├── setup-phase.md
 │       ├── mvp-phase.md
-│       └── review-and-hardening-phase.md (optional)
+│       ├── intent-router-phase.md
+│       ├── mobile-control-phase.md
+│       ├── run-catalog-phase.md
+│       ├── reliability-and-observability-phase.md
+│       ├── release-and-distribution-phase.md
+│       ├── review-and-hardening-phase.md (optional)
 server.js
 src-tauri/
 public/
