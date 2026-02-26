@@ -18,7 +18,15 @@
     "workingDirectory": { "type": "string", "minLength": 1 },
     "state": {
       "type": "string",
-      "enum": ["queued", "starting", "running", "completed", "failed", "cancelled"]
+      "enum": [
+        "queued",
+        "awaiting_confirmation",
+        "starting",
+        "running",
+        "completed",
+        "failed",
+        "cancelled"
+      ]
     },
     "createdAt": { "type": "string", "format": "date-time" },
     "task": {

@@ -22,37 +22,45 @@ Create a dependable host-trusted baseline so the orchestrator can validate envir
 
 ## Phase 0 Work (Owner: you/agent)
 
-1. **Baseline scaffold and runbook**
-   - Files: `package.json`, `server.js`, `public/index.html`, `llm/workflows/dev-env-local.md`
-   - Done when:
-     - `bun run start` launches the setup server.
-     - The setup page renders at `http://127.0.0.1:3000`.
-     - `bun run health` returns JSON diagnostics.
+- [x] **1. Baseline scaffold and runbook**
+  - Files: `package.json`, `server.js`, `public/index.html`, `llm/workflows/dev-env-local.md`
+  - Done when:
+    - [x] `bun run start` launches the setup server.
+    - [x] The setup page renders at `http://127.0.0.1:3000`.
+    - [x] `bun run health` returns JSON diagnostics.
 
-2. **Session contract + defaults**
-   - Files: `config/session-schema.json`, `config/session-defaults.json`
-   - Done when:
-     - Schema includes `sessionId`, `profile`, `workingDirectory`, `state`, `createdAt`.
-     - Profile enum is exactly `basic | edit | git | release`.
-- State enum is `queued | awaiting_confirmation | starting | running | completed | failed | cancelled`.
+- [x] **2. Session contract + defaults**
+  - Files: `config/session-schema.json`, `config/session-defaults.json`
+  - Done when:
+    - [x] Schema includes `sessionId`, `profile`, `workingDirectory`, `state`, `createdAt`.
+    - [x] Profile enum is exactly `basic | edit | git | release`.
+    - [x] State enum includes `queued | awaiting_confirmation | starting | running | completed | failed | cancelled`.
 
- 3. **Host capability checks**
+- [x] **3. Host capability checks**
   - File: `scripts/health-check.mjs`
   - Done when:
-    - `codex` and `git` required checks fail hard when unavailable.
-    - `gh` is checked as optional with clear remediation text.
-    - Orchestrator provider config is valid for the selected mode (URL, auth token presence where required, and model availability).
-    - Provider failures hard-fail startup in current default policy.
-    - Output is machine-parseable JSON including a top-level `ready` flag.
+    - [x] `codex` and `git` required checks fail hard when unavailable.
+    - [x] `gh` is checked as optional with clear remediation text.
+    - [x] Orchestrator provider config is valid for the selected mode (URL, auth token presence where required, and model availability).
+    - [x] Provider failures hard-fail startup in current default policy.
+    - [x] Output is machine-parseable JSON including a top-level `ready` flag.
 
-4. **Setup validation and diagnostics loop**
-   - Files: `README.md` and linked `llm/project/*` docs
-   - Done when:
-     - A missing-tool failure can be corrected from one doc page.
-     - Docs reference the exact commands used in this phase.
+- [x] **4. Setup validation and diagnostics loop**
+  - Files: `README.md` and linked `llm/project/*` docs
+  - Done when:
+    - [x] A missing-tool failure can be corrected from one doc page.
+    - [x] Docs reference the exact commands used in this phase.
 
-5. **Exit criteria for setup phase**
-   - `bun run health` passes in the local host environment.
-   - `bun run docs:lint` enumerates docs files.
-   - `bun run start` returns the placeholder setup UI.
-   - Session schema is ready as a contract for runtime implementation.
+- [x] **5. Exit criteria for setup phase**
+  - [x] `bun run health` passes in the local host environment.
+  - [x] `bun run docs:lint` enumerates docs files.
+  - [x] `bun run start` returns the placeholder setup UI.
+  - [x] Session schema is ready as a contract for runtime implementation.
+
+## What to do next (still in setup-phase scope)
+
+1. Keep setup baseline stable while beginning runtime implementation:
+   - `llm/project/phases/session-runtime-phase.md`: wire session lifecycle transitions from intent to execution.
+   - `llm/project/phases/intent-router-phase.md`: finalize execution contract and caller responses for confirmation-required states.
+2. Add a lightweight readiness gate check in local onboarding docs once phase 1 endpoints are introduced.
+3. After these docs and handoffs are in place, move planning ownership to runtime workstream items and mark `setup-phase.md` complete for release to phase 1 planning.
