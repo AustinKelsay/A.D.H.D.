@@ -67,9 +67,9 @@ assert_true() {
 wait_for_server() {
   local url="$1"
   local tries="${2:-20}"
-  local n
+  local _n
 
-  for n in $(seq 1 "$tries"); do
+  for _n in $(seq 1 "$tries"); do
     if curl -sS "$url/api/sessions" >/dev/null 2>&1; then
       return 0
     fi
@@ -91,7 +91,7 @@ stop_if_running() {
   local pid
   pid="$(cat "$pid_file")"
   if kill -0 "$pid" >/dev/null 2>&1; then
-    kill "$signal" "$pid" >/dev/null 2>&1 || true
+    kill -s "$signal" "$pid" >/dev/null 2>&1 || true
     wait "$pid" 2>/dev/null || true
   fi
   rm -f "$pid_file"

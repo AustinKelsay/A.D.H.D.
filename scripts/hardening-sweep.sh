@@ -16,7 +16,6 @@ SCRIPT_LOG_DIR="${TMPDIR:-/tmp}"
 MOCK_ORCH_PORT="${MOCK_ORCHESTRATOR_PORT:-11435}"
 SERVER_LOG_FILE="$SCRIPT_LOG_DIR/adhd-hardening-server.log"
 MOCK_LOG_FILE="$SCRIPT_LOG_DIR/adhd-mock-orchestrator.log"
-PERSIST_PATH="$SCRIPT_LOG_DIR/adhd-hardening-sessions.json"
 
 if ! command -v curl >/dev/null 2>&1; then
   echo "Required command not found: curl" >&2
@@ -273,7 +272,7 @@ stop_server() {
   fi
 
   if [[ -n "$server_pid" ]] && kill -0 "$server_pid" >/dev/null 2>&1; then
-    kill -TERM "$server_pid" >/dev/null 2>&1 || true
+    kill -s TERM "$server_pid" >/dev/null 2>&1 || true
     wait "$server_pid" 2>/dev/null || true
   fi
 
@@ -283,7 +282,7 @@ stop_server() {
 stop_mock_orchestrator() {
   local pid="$1"
   if [[ -n "$pid" ]] && kill -0 "$pid" >/dev/null 2>&1; then
-    kill -TERM "$pid" >/dev/null 2>&1 || true
+    kill -s TERM "$pid" >/dev/null 2>&1 || true
     wait "$pid" 2>/dev/null || true
   fi
 }

@@ -101,6 +101,7 @@ start_mock_orchestrator() {
   local scenario="$1"
   local delay_ms="${2:-0}"
 
+  stop_mock_orchestrator
   rm -f "$MOCK_ORCHESTRATOR_REQUEST_LOG"
   cat > "$MOCK_ORCHESTRATOR_SCRIPT" <<'MOCK'
 import fs from 'node:fs';
@@ -310,7 +311,7 @@ start_session() {
 read_request_body_field() {
   local request_index="$1"
   local field="$2"
-  jq -r ".[${request_index}] | ${field} // empty" "$MOCK_ORCHESTRATOR_REQUEST_LOG"
+  jq -s -r ".[${request_index}] | ${field} // empty" "$MOCK_ORCHESTRATOR_REQUEST_LOG"
 }
 
 read_request_count() {

@@ -37,6 +37,8 @@ Current status: setup is complete and ready for phase 1 runtime work.
 - `from` (ISO timestamp lower bound)
 - `to` (ISO timestamp upper bound)
 - `sort` (`newest` or `oldest`, default `newest`)
+
+Additional endpoints:
 - `POST /api/pair/request` (local clients create a short-lived API token for non-loopback callers)
 - `GET /api/mobile/sessions` (mobile list with progress projection)
 - `GET /api/mobile/sessions/:sessionId`
@@ -71,8 +73,11 @@ Current status: setup is complete and ready for phase 1 runtime work.
 - `ADHD_ORCHESTRATOR_MODEL` (model name used by the planner/intent orchestrator)
 - `ADHD_ORCHESTRATOR_CHAT_PATH` (optional chat completion endpoint path override)
 - `ADHD_ORCHESTRATOR_MODELS_PATH` (optional models endpoint path override)
-- `ADHD_OPENROUTER_REFERER` or `ADHD_ORCHESTRATOR_OPENROUTER_REFERER` (optional OpenRouter referer header)
-- `ADHD_OPENROUTER_TITLE` or `ADHD_ORCHESTRATOR_OPENROUTER_TITLE` (optional OpenRouter title header)
+- `ADHD_ORCHESTRATOR_OPENROUTER_REFERER` (preferred OpenRouter referer header override)
+- `ADHD_OPENROUTER_REFERER` (legacy fallback)
+- Precedence: if both `ADHD_ORCHESTRATOR_OPENROUTER_REFERER` and `ADHD_OPENROUTER_REFERER` are set, `ADHD_ORCHESTRATOR_OPENROUTER_REFERER` wins.
+- `ADHD_OPENROUTER_TITLE` (legacy fallback title) is deprecated in favor of `ADHD_ORCHESTRATOR_OPENROUTER_TITLE` (preferred title override).
+- `ADHD_ORCHESTRATOR_OPENROUTER_TITLE` (preferred OpenRouter title header override)
 - `ADHD_MAPLE_AI_AUTH_HEADER` (optional maple-ai auth header name)
 - `ADHD_ORCHESTRATOR_CUSTOM_AUTH_HEADER` (optional custom provider auth header name)
 - `ADHD_CODEX_COMMAND` (execution command, default `codex`)

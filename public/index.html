@@ -433,7 +433,6 @@
 
       function applySessionEvent(eventPayload) {
         const payload = eventPayload || {};
-        if (!payload) return;
 
         if (payload.sessions) {
           state.sessions.clear();
@@ -519,7 +518,6 @@
             state.sessions.set(payload.sessionId, {
               ...current,
               runtime: {
-                ...current.runtime,
                 ...(current.runtime || {}),
                 ...(payload.output || {}),
               },

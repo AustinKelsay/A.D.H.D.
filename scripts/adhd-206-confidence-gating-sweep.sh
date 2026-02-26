@@ -69,8 +69,8 @@ assert_contains() {
 wait_for_server() {
   local url="$1"
   local tries="${2:-20}"
-  local n
-  for n in $(seq 1 "$tries"); do
+  local _n
+  for _n in $(seq 1 "$tries"); do
     if curl -sS "$url/api/sessions" >/dev/null 2>&1; then
       return 0
     fi
@@ -256,7 +256,6 @@ trap cleanup EXIT
 start_mock_orchestrator basic_auto
 start_server
 
-start_mock_orchestrator basic_auto
 create_session_intent '{"profile":"basic","taskText":"lint files quickly"}'
 assert "adhd-206: basic intent accepted" "$SESSION_INTENT_STATUS" "201"
 start_session "$SESSION_INTENT_ID" '{"command":"bash","args":["--help"]}'

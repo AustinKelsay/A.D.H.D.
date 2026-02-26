@@ -50,7 +50,7 @@ assert_true() {
 }
 
 start_server() {
-  PORT=$PORT PORT="$PORT" bun run start > "$SERVER_LOG_FILE" 2>&1 &
+  PORT="$PORT" bun run start > "$SERVER_LOG_FILE" 2>&1 &
   local server_pid="$!"
   echo "$server_pid" > "$SERVER_PID_FILE"
 
@@ -85,6 +85,7 @@ create_session_intent() {
 }
 
 start_server
+trap 'stop_server' EXIT
 
 punctuated_payload='{"profile":"basic","taskText":"Please, fix bug!!! (quickly)."}'
 payload_output=$(create_session_intent "$punctuated_payload")
@@ -106,5 +107,6 @@ assert "adhd-201: explicit constraints preserved" "$(printf '%s' "$constraints_o
 assert "adhd-201: explicit constraints keep custom key" "$(printf '%s' "$constraints_output" | jq -r '.session.taskIntent.constraints.priority // empty')" "critical"
 
 stop_server
+trap - EXIT
 
 echo "ADHD-201 contract sweep passed."
