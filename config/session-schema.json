@@ -1,0 +1,151 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ADHD session schema",
+  "type": "object",
+  "$defs": {
+    "sessionState": {
+      "type": "string",
+      "enum": [
+        "queued",
+        "awaiting_confirmation",
+        "starting",
+        "running",
+        "completed",
+        "failed",
+        "cancelled"
+      ]
+    }
+  },
+  "required": [
+    "sessionId",
+    "profile",
+    "workingDirectory",
+    "state",
+    "createdAt"
+  ],
+  "properties": {
+    "sessionId": { "type": "string", "minLength": 1 },
+    "profile": {
+      "type": "string",
+      "enum": ["basic", "edit", "git", "release"]
+    },
+    "workingDirectory": { "type": "string", "minLength": 1 },
+    "state": { "$ref": "#/$defs/sessionState" },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "task": {
+      "type": "string",
+      "minLength": 1
+    },
+    "taskIntent": {
+      "type": "object",
+        "required": ["rawText", "normalizedText", "source"],
+        "additionalProperties": false,
+        "properties": {
+          "rawText": { "type": "string", "minLength": 1 },
+          "normalizedText": { "type": "string", "minLength": 1 },
+          "source": { "type": "string", "minLength": 1 },
+          "workType": { "type": ["string", "null"] },
+          "target": { "type": ["string", "null"] },
+          "constraints": { "type": "object" },
+          "profileSuggestions": { "type": ["array", "null"], "items": { "type": "string" } }
+        }
+      },
+    "profileHint": { "type": "string" },
+    "orchestrator": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "provider": { "type": ["string", "null"] },
+        "model": { "type": ["string", "null"] },
+        "traceId": { "type": ["string", "null"] },
+        "confidence": { "type": ["number", "null"] },
+        "selectedProfile": { "type": ["string", "null"] },
+        "requiresConfirmation": { "type": ["boolean", "null"] },
+        "decision": { "type": ["string", "null"] },
+        "planDecision": { "type": ["string", "null"] },
+        "reason": { "type": ["string", "null"] },
+        "suggestedArgs": { "type": ["array", "null"], "items": { "type": "string" } },
+        "latencyMs": { "type": ["number", "null"] },
+        "category": { "type": ["string", "null"] },
+        "error": { "type": ["string", "null"] },
+        "planAt": { "type": ["string", "null"], "format": "date-time" }
+      }
+    },
+    "summary": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "durationMs": { "type": "number", "minimum": 0 },
+        "exitCode": { "type": ["number", "null"] },
+        "outputPath": { "type": "string", "minLength": 1 },
+        "transcript": { "type": "string" },
+        "failed": { "type": "boolean" },
+        "errorCategory": { "type": ["string", "null"] },
+        "recoveryGuidance": { "type": ["string", "null"] },
+        "failureReason": { "type": ["string", "null"] }
+      },
+      "required": ["durationMs", "exitCode", "outputPath", "transcript", "failed", "errorCategory", "failureReason"]
+    },
+    "stateHistory": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["from", "to", "at", "reason"],
+        "additionalProperties": false,
+        "properties": {
+          "from": { "$ref": "#/$defs/sessionState" },
+          "to": { "$ref": "#/$defs/sessionState" },
+          "at": { "type": "string", "format": "date-time" },
+          "reason": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "command": { "type": "string", "minLength": 1 },
+        "args": { "type": "array", "items": { "type": "string" } },
+        "taskArgToken": { "type": "string" },
+        "timeoutMs": { "type": "number" },
+        "timeoutHandle": { "type": ["boolean", "object", "null"] },
+        "timer": { "type": ["boolean", "object", "null"] },
+        "stopRequested": { "type": "boolean" },
+        "output": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "stdout": { "type": "string" },
+            "stderr": { "type": "string" }
+          },
+          "required": ["stdout", "stderr"]
+        },
+        "exitCode": { "type": ["number", "null"] },
+        "signal": { "type": ["string", "null"] },
+        "error": { "type": ["string", "null"] },
+        "startedAt": { "type": ["string", "null"], "format": "date-time" },
+        "completedAt": { "type": ["string", "null"], "format": "date-time" },
+        "process": { "type": ["object", "null"], "additionalProperties": true },
+        "retryCount": { "type": ["number", "null"] },
+        "lastRetryError": { "type": ["string", "null"] },
+        "queuedForStart": { "type": "boolean" },
+        "queuedForStartAt": { "type": ["string", "null"], "format": "date-time" },
+        "queuedStartOptions": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["command"],
+          "properties": {
+            "command": { "type": "string" },
+            "args": { "type": ["array", "null"], "items": { "type": "string" } },
+            "timeoutMs": { "type": ["number", "null"] },
+            "workingDirectory": { "type": ["string", "null"] },
+            "env": { "type": "object", "additionalProperties": true }
+          }
+        },
+        "awaitingManualConfirmation": { "type": "boolean" }
+      },
+      "required": ["command", "args", "stopRequested", "output", "exitCode", "signal", "error", "startedAt", "completedAt", "process", "queuedForStart", "queuedForStartAt", "queuedStartOptions", "awaitingManualConfirmation"]
+    }
+  },
+  "additionalProperties": false
+}
