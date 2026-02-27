@@ -251,6 +251,7 @@ start_server() {
   ADHD_ORCHESTRATOR_CHAT_PATH="/chat/completions" \
   ADHD_ORCHESTRATOR_MODELS_PATH="/api/tags" \
   PORT="$PORT" \
+  # Keep Node.js invocation here for direct server-start parity checks in hardening coverage.
   node server.js > "$log_file" 2>&1 &
 
   local server_pid="$!"
@@ -317,7 +318,7 @@ run_cancellation_startup() {
     return 1
   fi
 
-  IFS='|' read -r final_state final_category final_guidance <<< "$observed"
+  IFS='|' read -r final_state final_category final_guidance final_runtime_error <<< "$observed"
   assert "startup cancellation: final state" "$final_state" "cancelled"
 
   stop_server

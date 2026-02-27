@@ -179,7 +179,16 @@ MOCK
   MOCK_ORCHESTRATOR_PORT="$MOCK_ORCHESTRATOR_PORT" \
   node "$MOCK_ORCHESTRATOR_SCRIPT" > "$MOCK_ORCHESTRATOR_LOG_FILE" 2>&1 &
   echo "$!" > "$MOCK_ORCHESTRATOR_PID_FILE"
-  wait_for_server "http://127.0.0.1:$MOCK_ORCHESTRATOR_PORT/api/tags" 12
+  local n
+  for n in $(seq 1 12); do
+    if curl --fail -sS "http://127.0.0.1:$MOCK_ORCHESTRATOR_PORT/api/tags" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+  done
+
+  echo "Mock orchestrator did not become reachable at http://127.0.0.1:$MOCK_ORCHESTRATOR_PORT/api/tags" >&2
+  return 1
 }
 
 start_server() {
@@ -230,7 +239,7 @@ start_session() {
     -o "$response_file" \
     -w '%{http_code}')"
   SESSION_START_STATUS="$status"
-  SESSION_START_BODY="$(cat "$response_file")"
+  _SESSION_START_BODY="$(cat "$response_file")"
   rm -f "$response_file"
 }
 
@@ -244,7 +253,7 @@ stop_session() {
     -o "$response_file" \
     -w '%{http_code}')"
   SESSION_STOP_STATUS="$status"
-  SESSION_STOP_BODY="$(cat "$response_file")"
+  _SESSION_STOP_BODY="$(cat "$response_file")"
   rm -f "$response_file"
 }
 
@@ -269,7 +278,7 @@ get_session() {
   status="$(curl -sS -X GET "$BASE_URL/api/sessions/$session_id" \
     -o "$response_file" \
     -w '%{http_code}')"
-  SESSION_GET_STATUS="$status"
+  _SESSION_GET_STATUS="$status"
   SESSION_GET_BODY="$(cat "$response_file")"
   rm -f "$response_file"
 }

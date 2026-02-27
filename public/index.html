@@ -12,7 +12,7 @@
 
       body {
         margin: 0;
-        padding: 24px;
+        padding: 0;
         background:
           radial-gradient(circle at 20% 0%, #f4f7ff 0%, transparent 35%),
           linear-gradient(160deg, #f8fafc, #eef2ff);
@@ -20,8 +20,24 @@
       }
 
       main {
-        max-width: 980px;
+        width: min(100%, 980px);
         margin: 0 auto;
+        padding: 16px 14px 24px;
+      }
+
+      .shell {
+        width: 100%;
+        min-width: 0;
+        overflow-x: hidden;
+      }
+
+      h1 {
+        margin-top: 0;
+      }
+
+      section {
+        width: 100%;
+        min-width: 0;
       }
 
       .status-chip {
@@ -37,7 +53,15 @@
       .session-grid {
         margin-top: 18px;
         display: grid;
+        grid-template-columns: 1fr;
         gap: 12px;
+        width: 100%;
+      }
+
+      .session {
+        min-width: 0;
+        max-width: 100%;
+        overflow: hidden;
       }
 
       .session {
@@ -52,6 +76,16 @@
         margin: 0;
       }
 
+      .session-title {
+        word-break: break-word;
+        overflow-wrap: anywhere;
+      }
+
+      .session-line,
+      .muted {
+        overflow-wrap: anywhere;
+      }
+
       .session-line {
         margin: 6px 0;
       }
@@ -61,6 +95,7 @@
         gap: 8px;
         margin: 8px 0;
         flex-wrap: wrap;
+        min-width: 0;
       }
 
       .session-control {
@@ -72,6 +107,14 @@
         font-size: 12px;
         font-weight: 600;
         cursor: pointer;
+        min-height: 34px;
+        width: auto;
+      }
+
+      .session-control:disabled,
+      .session-control[aria-busy="true"] {
+        cursor: not-allowed;
+        opacity: 0.55;
       }
 
       .session-control:hover {
@@ -129,10 +172,66 @@
       .timeline li {
         margin: 2px 0;
       }
+
+      .session-status-note {
+        margin: 6px 0;
+        color: #1e3a8a;
+        font-size: 12px;
+      }
+
+      .session-summary {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+
+      .session-summary a {
+        display: inline-block;
+        margin: 2px 0;
+      }
+
+      @media (max-width: 600px) {
+        main {
+          padding: 12px 10px 20px;
+        }
+
+        .session h3 {
+          font-size: 1.05rem;
+        }
+
+        .session-controls {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 6px;
+        }
+
+        .session-control {
+          width: 100%;
+          font-size: 13px;
+          padding: 8px 10px;
+        }
+
+        .session-control.danger {
+          grid-column: span 2;
+        }
+
+        .session-line {
+          font-size: 13px;
+        }
+
+        .mono {
+          font-size: 11px;
+          max-height: 140px;
+        }
+
+        details summary {
+          font-size: 14px;
+        }
+      }
     </style>
   </head>
   <body>
-    <main>
+    <main class="shell">
       <h1>ADHD Session Console</h1>
       <p>
         <span id="connection-state" class="status-chip">Initializing status stream…</span>
@@ -152,6 +251,7 @@
         sessions: new Map(),
         pollingHandle: null,
         streamErrorCount: 0,
+        controlSnapshots: new Map(),
       };
       const RERUN_PROFILES = ['basic', 'edit', 'git', 'release'];
 
@@ -189,17 +289,61 @@
         return `${seconds}s`;
       }
 
-      function createControlButton(sessionId, action, label, styleType, bodyFactory) {
+      function createControlButton(sessionId, action, label, styleType, bodyFactory, isDisabled = false) {
         const button = document.createElement('button');
         button.type = 'button';
         button.className = `session-control ${styleType || ''}`.trim();
         button.textContent = label;
+        button.disabled = Boolean(isDisabled);
         button.addEventListener('click', async () => {
+          if (button.disabled) return;
+
+          if (action === 'cancel' || action === 'stop') {
+            const confirmed = window.confirm(`Cancel session ${sessionId}?`);
+            if (!confirmed) return;
+          }
+
+          const currentSession = state.sessions.get(sessionId) || null;
+          if (!currentSession) return;
+          if (state.controlSnapshots.has(button)) return;
+
+          const snapshot = JSON.parse(JSON.stringify(currentSession));
+          state.controlSnapshots.set(button, snapshot);
+          const nextState = (action === 'cancel' || action === 'stop')
+            ? { state: 'cancelled', runtime: { ...(currentSession.runtime || {}), error: 'cancel requested' } }
+            : {};
+          state.sessions.set(sessionId, {
+            ...currentSession,
+            ...nextState,
+            _controlPending: action,
+          });
+          renderSessions();
+
+          button.disabled = true;
+          button.setAttribute('aria-busy', 'true');
+
+          const previousText = button.textContent;
+          if (action === 'cancel' || action === 'stop') {
+            button.textContent = 'Cancelling...';
+          } else if (action === 'retry') {
+            button.textContent = 'Retrying...';
+          } else if (action === 'rerun') {
+            button.textContent = 'Rerunning...';
+          } else {
+            button.textContent = 'Working...';
+          }
+
           try {
             const requestBody = typeof bodyFactory === 'function'
               ? bodyFactory()
               : {};
             if (requestBody === null) {
+              button.removeAttribute('aria-busy');
+              button.disabled = false;
+              button.textContent = previousText;
+              state.controlSnapshots.delete(button);
+              state.sessions.set(sessionId, snapshot);
+              renderSessions();
               return;
             }
 
@@ -216,6 +360,8 @@
               updateFromPayload(body.session);
             }
             if (!response.ok) {
+              state.sessions.set(sessionId, snapshot);
+              renderSessions();
               return;
             }
             if ((action === 'retry' || action === 'rerun') && body?.session) {
@@ -223,6 +369,13 @@
             }
           } catch {
             // control action failed; no auto retry in UI
+            state.sessions.set(sessionId, snapshot);
+            renderSessions();
+          } finally {
+            state.controlSnapshots.delete(button);
+            button.removeAttribute('aria-busy');
+            button.disabled = false;
+            button.textContent = previousText;
           }
         });
         return button;
@@ -259,7 +412,7 @@
         if (!session.summary) return null;
 
         const wrapper = document.createElement('div');
-        wrapper.className = 'session-details';
+        wrapper.className = 'session-details session-summary';
 
         const title = document.createElement('p');
         title.className = 'muted';
@@ -284,15 +437,18 @@
         outputLink.textContent = 'Open output';
         output.appendChild(outputLink);
 
-        const stdoutLink = document.createElement('a');
-        stdoutLink.href = `/api/sessions/${session.sessionId}/output?stream=stdout`;
-        stdoutLink.target = '_blank';
-        stdoutLink.rel = 'noopener noreferrer';
-        stdoutLink.textContent = 'Open stdout';
-        output.appendChild(document.createTextNode(' | '));
-        output.appendChild(stdoutLink);
+        const hasStdout = (session.runtime?.output?.stdout || '').length > 0;
+        if (hasStdout) {
+          const stdoutLink = document.createElement('a');
+          stdoutLink.href = `/api/sessions/${session.sessionId}/output?stream=stdout`;
+          stdoutLink.target = '_blank';
+          stdoutLink.rel = 'noopener noreferrer';
+          stdoutLink.textContent = 'Open stdout';
+          output.appendChild(document.createTextNode(' | '));
+          output.appendChild(stdoutLink);
+        }
 
-        const hasStderr = sanitizeText(session.runtime?.output?.stderr || '').length > 0;
+        const hasStderr = (session.runtime?.output?.stderr || '').length > 0;
         if (hasStderr) {
           const stderrLink = document.createElement('a');
           stderrLink.href = `/api/sessions/${session.sessionId}/output?stream=stderr`;
@@ -307,18 +463,23 @@
         return wrapper;
       }
 
-      function updateFromPayload(session) {
+      function updateFromPayload(session, shouldRender = true) {
         if (!session || !session.sessionId) return;
         state.sessions.set(session.sessionId, session);
-        renderSessions();
+
+        if (shouldRender) {
+          renderSessions();
+        }
       }
 
       function renderSession(session) {
         const card = document.createElement('article');
         card.className = 'session';
+        card.setAttribute('data-session-id', session.sessionId);
 
         const output = `${sanitizeText(session.runtime?.output?.stdout || '')}${sanitizeText(session.runtime?.output?.stderr || '')}`;
         const cardTitle = document.createElement('h3');
+        cardTitle.className = 'session-title';
         cardTitle.textContent = `${stateToEmoji[session.state] || '🟪'} ${session.sessionId}`;
 
         const profile = document.createElement('p');
@@ -343,13 +504,14 @@
 
         const controls = document.createElement('div');
         controls.className = 'session-controls';
+        const isBusy = Boolean(session._controlPending);
         if (session.state === 'running') {
-          controls.appendChild(createControlButton(session.sessionId, 'stop', 'Cancel', 'danger'));
+          controls.appendChild(createControlButton(session.sessionId, 'stop', 'Cancel', 'danger', null, isBusy));
         } else if (session.state === 'queued' || session.state === 'awaiting_confirmation' || session.state === 'starting') {
-          controls.appendChild(createControlButton(session.sessionId, 'cancel', 'Cancel', 'danger'));
+          controls.appendChild(createControlButton(session.sessionId, 'cancel', 'Cancel', 'danger', null, isBusy));
         }
         if (session.state === 'failed') {
-          controls.appendChild(createControlButton(session.sessionId, 'retry', 'Retry', '', () => ({})));
+          controls.appendChild(createControlButton(session.sessionId, 'retry', 'Retry', '', () => ({}), isBusy));
         }
         if (session.state === 'completed' || session.state === 'failed') {
           const requestedProfile = session.profile;
@@ -374,12 +536,20 @@
               }
               return { profile: normalizedProfile };
             },
+            isBusy,
           ));
+        }
+
+        if (isBusy) {
+          const status = document.createElement('p');
+          status.className = 'session-status-note';
+          status.textContent = `Action in progress: ${session._controlPending}`;
+          card.appendChild(status);
         }
 
         const details = document.createElement('details');
         const summary = document.createElement('summary');
-        summary.textContent = 'Details';
+        summary.textContent = session.state === 'completed' ? 'Details, output, and summary' : 'Details';
         details.appendChild(summary);
 
         const summaryBlock = buildSummary(session);
@@ -436,8 +606,13 @@
 
         if (payload.sessions) {
           state.sessions.clear();
+          let hasSessions = false;
           for (const item of payload.sessions) {
-            updateFromPayload(item);
+            updateFromPayload(item, false);
+            hasSessions = true;
+          }
+          if (hasSessions) {
+            renderSessions();
           }
           return;
         }
@@ -449,13 +624,18 @@
 
         if (payload.sessionId && state.sessions.has(payload.sessionId)) {
           const current = state.sessions.get(payload.sessionId);
-          state.sessions.set(payload.sessionId, {
-            ...current,
-            runtime: {
-              ...(current.runtime || {}),
+          const mergedRuntime = {
+            ...(current.runtime || {}),
+            ...(payload.runtime || {}),
+            output: {
+              ...(current.runtime?.output || {}),
               ...(payload.output || {}),
             },
+          };
+          state.sessions.set(payload.sessionId, {
+            ...current,
             ...payload,
+            runtime: mergedRuntime,
           });
           renderSessions();
         }
@@ -469,8 +649,13 @@
             return;
           }
           state.sessions.clear();
+          let hasSessions = false;
           for (const item of body.sessions || []) {
-            updateFromPayload(item);
+            updateFromPayload(item, false);
+            hasSessions = true;
+          }
+          if (hasSessions) {
+            renderSessions();
           }
           setConnectionState('REST fallback polling active (1s)');
         } catch {

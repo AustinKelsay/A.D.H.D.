@@ -40,6 +40,9 @@ Current status: setup is complete and ready for phase 1 runtime work.
 
 Additional endpoints:
 - `POST /api/pair/request` (local clients create a short-lived API token for non-loopback callers)
+  - Request body: optional `{ "ttlMs": <positive integer> }` (minimum 1000ms, defaults to `ADHD_PAIR_TOKEN_TTL_MS`).
+  - Response: `{ ok, token, expiresAt, expiresInMs, header }`.
+  - On invalid `ttlMs`, returns `400` with `errorCode: "invalidPairTtl"`.
 - `GET /api/mobile/sessions` (mobile list with progress projection)
 - `GET /api/mobile/sessions/:sessionId`
 - `POST /api/mobile/sessions/:sessionId/start`
@@ -176,6 +179,42 @@ Or via npm script:
 
 ```bash
 bun run controls-sweep
+```
+
+### Phase 4 mobile control/auth coverage (ADHD-402)
+
+```bash
+bash scripts/adhd-402-mobile-controls-sweep.sh
+```
+
+Or via npm script:
+
+```bash
+bun run mobile-controls-sweep
+```
+
+### Phase 4 responsive mobile views (ADHD-403)
+
+```bash
+bash scripts/adhd-403-mobile-view-sweep.sh
+```
+
+Or via npm script:
+
+```bash
+bun run mobile-view-sweep
+```
+
+### Phase 4 cross-device action parity (ADHD-404)
+
+```bash
+bash scripts/adhd-404-cross-device-action-sweep.sh
+```
+
+Or via npm script:
+
+```bash
+bun run mobile-action-semantics-sweep
 ```
 
 ### Phase 3 summary persistence coverage (ADHD-303)

@@ -21,7 +21,7 @@
    - Implement `basic`, `edit`, `git`, `release` mode behavior and preflight confirmation for high-risk runs.
    - Expose confidence and provider metadata for decisions and auditability.
 5. **Cross-client controls**
-  - Ensure desktop and phone clients can both list sessions and control active runs.
+   - Ensure desktop and phone clients can both list sessions and control active runs.
 
 ## Verification coverage
 - `bash scripts/adhd-304-controls-sweep.sh` (cancel and retry control flow from running/failed terminal sessions)

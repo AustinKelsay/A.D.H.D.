@@ -29,6 +29,16 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 1
 fi
 
+if ! command -v bun >/dev/null 2>&1; then
+  echo "Required command not found: bun" >&2
+  exit 1
+fi
+
+if ! command -v node >/dev/null 2>&1; then
+  echo "Required command not found: node" >&2
+  exit 1
+fi
+
 assert() {
   local label="$1"
   local actual="$2"
@@ -67,10 +77,16 @@ assert_true() {
 wait_for_server() {
   local url="$1"
   local tries="${2:-20}"
+  local probe_path="${3:-/api/sessions}"
   local _n
+  local normalized_url="${url%/}"
+  local normalized_path="$probe_path"
+  if [[ "$normalized_path" != /* ]]; then
+    normalized_path="/$normalized_path"
+  fi
 
   for _n in $(seq 1 "$tries"); do
-    if curl -sS "$url/api/sessions" >/dev/null 2>&1; then
+    if curl --fail -sS "${normalized_url}${normalized_path}" >/dev/null 2>&1; then
       return 0
     fi
     sleep 1
@@ -152,7 +168,7 @@ MOCK
   MOCK_ORCHESTRATOR_PORT="$port" node "$MOCK_ORCHESTRATOR_SCRIPT" > "$MOCK_SERVER_LOG_FILE" 2>&1 &
   local pid="$!"
   echo "$pid" > "$MOCK_SERVER_PID_FILE"
-  wait_for_server "http://127.0.0.1:$port" 10
+  wait_for_server "http://127.0.0.1:$port" 10 '/api/tags'
 }
 
 start_server() {
@@ -244,7 +260,7 @@ trap cleanup EXIT
 MANAGED_SERVER=0
 if ! wait_for_server "$BASE_URL" 10; then
   start_mock_orchestrator "$MOCK_ORCHESTRATOR_PORT"
-  if ! wait_for_server "http://127.0.0.1:$MOCK_ORCHESTRATOR_PORT" 10; then
+  if ! wait_for_server "http://127.0.0.1:$MOCK_ORCHESTRATOR_PORT" 10 '/api/tags'; then
     echo "Mock orchestrator did not start" >&2
     exit 1
   fi

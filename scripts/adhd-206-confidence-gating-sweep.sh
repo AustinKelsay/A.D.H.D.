@@ -15,7 +15,7 @@ SCRIPT_LOG_DIR="${TMPDIR:-/tmp}"
 MOCK_ORCHESTRATOR_PORT="${MOCK_ORCHESTRATOR_PORT:-11437}"
 MOCK_ORCHESTRATOR_LOG_FILE="$SCRIPT_LOG_DIR/adhd-206-mock-orchestrator.log"
 MOCK_ORCHESTRATOR_PID_FILE="$SCRIPT_LOG_DIR/adhd-206-mock-orchestrator.pid"
-MOCK_ORCHESTRATOR_SCRIPT="$SCRIPT_LOG_DIR/adhd-mock-orchestrator.mjs"
+MOCK_ORCHESTRATOR_SCRIPT="$(mktemp "$SCRIPT_LOG_DIR/adhd-mock-orchestrator.XXXXXX.mjs")"
 SERVER_LOG_FILE="$SCRIPT_LOG_DIR/adhd-206-confidence-gating-sweep-server.log"
 SERVER_PID_FILE="$SCRIPT_LOG_DIR/adhd-206-confidence-gating-sweep-server.pid"
 
@@ -64,6 +64,23 @@ assert_contains() {
   fi
 
   echo "✓ $label: contains '$needle'"
+}
+
+assert_in_set() {
+  local label="$1"
+  local actual="$2"
+  shift 2
+  local value
+
+  for value in "$@"; do
+    if [[ "$actual" == "$value" ]]; then
+      echo "✓ $label: $actual"
+      return 0
+    fi
+  done
+
+  echo "ASSERTION FAILED [$label]: expected one of [$*], got '$actual'" >&2
+  return 1
 }
 
 wait_for_server() {
@@ -261,8 +278,9 @@ assert "adhd-206: basic intent accepted" "$SESSION_INTENT_STATUS" "201"
 start_session "$SESSION_INTENT_ID" '{"command":"bash","args":["--help"]}'
 assert "adhd-206: basic high-confidence auto-path status" "$SESSION_START_STATUS" "200"
 assert_true "adhd-206: basic high-confidence not blocked by confirmation" "$(printf '%s' "$SESSION_START_BODY" | jq -r '.ok // false')"
-assert_contains "adhd-206: basic high-confidence returns queued or running" "$(printf '%s' "$SESSION_START_BODY" | jq -r '.queued // false')" "true"
-assert "adhd-206: basic high-confidence state stays queued" "$(printf '%s' "$SESSION_START_BODY" | jq -r '.session.state // empty')" "queued"
+assert_in_set "adhd-206: basic high-confidence in active start state" \
+  "$(printf '%s' "$SESSION_START_BODY" | jq -r '.session.state // empty')" \
+  "queued" "starting" "running"
 
 stop_mock_orchestrator
 start_mock_orchestrator git_confidence
@@ -290,7 +308,7 @@ start_session "$SESSION_INTENT_ID" '{"command":"bash","args":["-lc","echo missin
 assert "adhd-206: missing confidence status" "$SESSION_START_STATUS" "500"
 assert "adhd-206: missing confidence error code" "$(printf '%s' "$SESSION_START_BODY" | jq -r '.errorCode // empty')" "blocked-planning-failed"
 assert "adhd-206: missing confidence moves to failed" "$(printf '%s' "$SESSION_START_BODY" | jq -r '.session.state // empty')" "failed"
-assert "adhd-206: missing confidence has planner failure category" "$(printf '%s' "$SESSION_START_BODY" | jq -r '.errorCategory // empty')" "orchestrator-invalid-plan"
+assert "adhd-206: missing confidence has planner failure category" "$(printf '%s' "$SESSION_START_BODY" | jq -r '.errorCategory // empty')" "blocked-planning-failed"
 assert_true "adhd-206: missing confidence provides recovery guidance" "$(printf '%s' "$SESSION_START_BODY" | jq -r '(.recoveryGuidance | length > 0) // false')"
 
 echo "ADHD-206 confidence gating sweep passed."

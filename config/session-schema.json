@@ -93,7 +93,7 @@
         "required": ["from", "to", "at", "reason"],
         "additionalProperties": false,
         "properties": {
-          "from": { "type": ["string", "null"] },
+          "from": { "$ref": "#/$defs/sessionState" },
           "to": { "$ref": "#/$defs/sessionState" },
           "at": { "type": "string", "format": "date-time" },
           "reason": { "type": "string", "minLength": 1 }

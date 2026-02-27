@@ -95,12 +95,12 @@ create_session_intent() {
   local payload="$1"
   local response_file status
   response_file="$(mktemp)"
-  SESSION_INTENT_BODY="$(curl -sS -X POST "$BASE_URL/api/sessions/intent" \
+  status="$(curl -sS -X POST "$BASE_URL/api/sessions/intent" \
     -H "Content-Type: application/json" \
     -d "$payload" \
     -o "$response_file" \
     -w '%{http_code}')"
-  SESSION_INTENT_STATUS="$SESSION_INTENT_BODY"
+  SESSION_INTENT_STATUS="$status"
   SESSION_INTENT_BODY="$(cat "$response_file")"
   rm -f "$response_file"
 }

@@ -123,9 +123,20 @@ assert_file_contains() {
 wait_for_server() {
   local url="$1"
   local tries="${2:-20}"
+  local probe="${3:-/api/sessions}"
   local n
+  local base_url="${url%/}"
+  local probe_url="$probe"
+
+  if [[ "$probe" != http://* && "$probe" != https://* ]]; then
+    if [[ "$probe" != /* ]]; then
+      probe="/$probe"
+    fi
+    probe_url="${base_url}${probe}"
+  fi
+
   for n in $(seq 1 "$tries"); do
-    if curl -sS "$url/api/sessions" >/dev/null 2>&1; then
+    if curl --fail -sS "$probe_url" >/dev/null 2>&1; then
       return 0
     fi
     sleep 1
@@ -214,7 +225,7 @@ MOCK
   MOCK_ORCHESTRATOR_PORT="$MOCK_ORCHESTRATOR_PORT" \
   node "$MOCK_ORCHESTRATOR_SCRIPT" > "$MOCK_ORCHESTRATOR_LOG_FILE" 2>&1 &
   echo "$!" > "$MOCK_ORCHESTRATOR_PID_FILE"
-  wait_for_server "http://127.0.0.1:$MOCK_ORCHESTRATOR_PORT/api/tags" 12
+  wait_for_server "http://127.0.0.1:$MOCK_ORCHESTRATOR_PORT" 12 '/api/tags'
 }
 
 start_server() {

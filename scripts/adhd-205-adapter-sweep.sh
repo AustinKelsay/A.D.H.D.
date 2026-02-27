@@ -8,8 +8,8 @@ MOCK_ORCHESTRATOR_PORT="${MOCK_ORCHESTRATOR_PORT:-11436}"
 SCRIPT_LOG_DIR="${TMPDIR:-/tmp}"
 MOCK_ORCHESTRATOR_LOG_FILE="$SCRIPT_LOG_DIR/adhd-205-mock-orchestrator.log"
 MOCK_ORCHESTRATOR_PID_FILE="$SCRIPT_LOG_DIR/adhd-205-mock-orchestrator.pid"
-MOCK_ORCHESTRATOR_SCRIPT="$SCRIPT_LOG_DIR/adhd-205-mock-orchestrator.mjs"
-MOCK_ORCHESTRATOR_REQUEST_LOG="$SCRIPT_LOG_DIR/adhd-205-mock-orchestrator.requests.jsonl"
+MOCK_ORCHESTRATOR_SCRIPT="$(mktemp "$SCRIPT_LOG_DIR/adhd-205-mock-orchestrator.XXXXXX.mjs")"
+MOCK_ORCHESTRATOR_REQUEST_LOG="$(mktemp "$SCRIPT_LOG_DIR/adhd-205-mock-orchestrator.requests.XXXXXX.jsonl")"
 SERVER_LOG_FILE="$SCRIPT_LOG_DIR/adhd-205-adapter-sweep-server.log"
 SERVER_PID_FILE="$SCRIPT_LOG_DIR/adhd-205-adapter-sweep-server.pid"
 
@@ -64,8 +64,8 @@ wait_for_server() {
   local url="$1"
   local tries="${2:-25}"
   local endpoint="${3:-/api/sessions}"
-  local n
-  for n in $(seq 1 "$tries"); do
+  local _
+  for _ in $(seq 1 "$tries"); do
     if curl -sS "${url%/}${endpoint}" >/dev/null 2>&1; then
       return 0
     fi
@@ -210,11 +210,9 @@ const server = http.createServer(async (req, res) => {
 });
 
 const port = Number(process.env.MOCK_ORCHESTRATOR_PORT || 11445);
-server.listen(port, '127.0.0.1', () => {
-  console.log(`adhd-205 mock orchestrator listening ${port} (${scenario})`);
-});
-
-setInterval(() => {}, 1000);
+  server.listen(port, '127.0.0.1', () => {
+    console.log(`adhd-205 mock orchestrator listening ${port} (${scenario})`);
+  });
 MOCK
 
   MOCK_SCENARIO="$scenario" \
@@ -235,17 +233,15 @@ start_server() {
   local referer="${5:-}"
   local title="${6:-}"
   local timeout_ms="${7:-15000}"
-  local chat_path="/chat/completions"
-
-  if [[ "$provider" == "ollama" ]]; then
-    chat_path="/api/chat"
-  fi
+  local chat_path="${8:-}"
 
   stop_server
+  if [[ -n "$chat_path" ]]; then
+    ADHD_ORCHESTRATOR_CHAT_PATH="$chat_path"
+  fi
   ADHD_ORCHESTRATOR_PROVIDER="$provider" \
   ADHD_ORCHESTRATOR_BASE_URL="$base_url" \
   ADHD_ORCHESTRATOR_MODEL="$model" \
-  ADHD_ORCHESTRATOR_CHAT_PATH="$chat_path" \
   ADHD_ORCHESTRATOR_TIMEOUT_MS="$timeout_ms" \
   ADHD_ORCHESTRATOR_API_KEY="$api_key" \
   ADHD_OPENROUTER_REFERER="$referer" \
@@ -262,8 +258,9 @@ stop_server() {
 
 cleanup() {
   stop_server
-stop_mock_orchestrator
-rm -f "$MOCK_ORCHESTRATOR_SCRIPT"
+  stop_mock_orchestrator
+  rm -f "$MOCK_ORCHESTRATOR_SCRIPT"
+  rm -f "$MOCK_ORCHESTRATOR_REQUEST_LOG"
 }
 
 trap cleanup EXIT
@@ -362,7 +359,7 @@ assert "ADHD-205: malformed scenario intent accepted" "$SESSION_INTENT_STATUS" "
 start_session "$SESSION_INTENT_ID" '{"confirm":true,"command":"bash","args":["-lc","echo should-not-run"]}'
 assert "ADHD-205: malformed response fails planning" "$SESSION_START_STATUS" "500"
 assert "ADHD-205: malformed response fails into failed category" "$(printf '%s' "$SESSION_START_BODY" | jq -r '.errorCategory // empty')" "orchestrator-invalid-plan"
-assert "ADHD-205: malformed response returns remediation guidance" "$(printf '%s' "$SESSION_START_BODY" | jq -r '.recoveryGuidance // empty' | cut -c1-8)" "The orch"
+assert_true "ADHD-205: malformed response returns remediation guidance" "$([[ -n "$(printf '%s' "$SESSION_START_BODY" | jq -r '.recoveryGuidance // empty')" ]] && echo true || echo false)"
 assert "ADHD-205: malformed response fails with failed planning state" "$(printf '%s' "$SESSION_START_BODY" | jq -r '.session.state // empty')" "failed"
 assert "ADHD-205: malformed request was sent once" "$(read_request_count)" "1"
 

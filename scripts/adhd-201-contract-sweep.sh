@@ -55,7 +55,7 @@ start_server() {
   echo "$server_pid" > "$SERVER_PID_FILE"
 
   for _ in $(seq 1 20); do
-    if curl -sS "$BASE_URL/api/sessions" >/dev/null 2>&1; then
+    if curl --fail -sS "$BASE_URL/api/sessions" >/dev/null 2>&1; then
       return 0
     fi
     sleep 1
@@ -84,8 +84,9 @@ create_session_intent() {
     -d "$payload"
 }
 
-start_server
 trap 'stop_server' EXIT
+
+start_server
 
 punctuated_payload='{"profile":"basic","taskText":"Please, fix bug!!! (quickly)."}'
 payload_output=$(create_session_intent "$punctuated_payload")
