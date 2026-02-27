@@ -44,6 +44,7 @@ const RUNNER_RETRY_DELAY_MS = parseRetryLimit(
 );
 const API_TOKEN = process.env.ADHD_API_TOKEN || '';
 const API_PAIRING_TTL_MS = parsePositiveInt(process.env.ADHD_PAIR_TOKEN_TTL_MS || 600000, 600000);
+const API_PAIR_TOKEN_MIN_TTL_MS = 1000;
 const ADHD_SESSION_RETENTION_DAYS = parseNonNegativeInt(process.env.ADHD_SESSION_RETENTION_DAYS || 0, 0);
 const ADHD_SESSION_RETENTION_MAX_COUNT = parseNonNegativeInt(process.env.ADHD_SESSION_RETENTION_MAX_COUNT || 0, 0);
 const MOBILE_ACTION_IDEMPOTENCY_TTL_MS = parsePositiveInt(
@@ -267,7 +268,19 @@ function hasTerminalSummary(session, summary = {}) {
 function ensureTerminalSummary(session, context = {}) {
   if (!session || typeof session !== 'object') return;
   if (!TERMINAL_SESSION_STATES.has(session.state)) return;
-  if (hasTerminalSummary(session, session.summary)) return;
+  const outputPath = normalizeText(context.outputPath || session.summary?.outputPath || buildSessionOutputPath(session.sessionId));
+  let outputArtifactEmpty = false;
+  if (context.persistOutput && outputPath) {
+    try {
+      const stats = fs.statSync(outputPath);
+      outputArtifactEmpty = stats.size <= 0;
+    } catch {
+      outputArtifactEmpty = true;
+    }
+  }
+
+  if (!context.persistOutput && hasTerminalSummary(session, session.summary)) return;
+  if (context.persistOutput && hasTerminalSummary(session, session.summary) && !outputArtifactEmpty) return;
 
   const errorCategory = context.errorCategory !== undefined
     ? context.errorCategory
@@ -284,7 +297,7 @@ function ensureTerminalSummary(session, context = {}) {
     errorCategory,
     failureReason,
     recoveryGuidance,
-    outputPath: normalizeText(context.outputPath || session.summary?.outputPath || buildSessionOutputPath(session.sessionId)),
+    outputPath,
   });
 
   if (context.persistOutput) {
@@ -1634,23 +1647,34 @@ function makePairingToken() {
   return randomBytes(16).toString('hex');
 }
 
-function getPairToken(token) {
+function inspectPairToken(token) {
   const normalized = normalizeText(token);
-  if (!normalized) return null;
+  if (!normalized) {
+    return { kind: 'missing' };
+  }
 
   const record = ACTIVE_PAIR_TOKENS.get(normalized);
-  if (!record) return null;
+  if (!record) {
+    return { kind: 'invalid' };
+  }
+
   if (!Number.isFinite(record.expiresAt) || record.expiresAt <= Date.now()) {
     ACTIVE_PAIR_TOKENS.delete(normalized);
-    return null;
+    return { kind: 'expired' };
   }
+
   record.lastUsedAt = nowIso();
-  return record;
+  return { kind: 'valid', record };
+}
+
+function getPairToken(token) {
+  const result = inspectPairToken(token);
+  return result.kind === 'valid' ? result.record : null;
 }
 
 function issuePairToken(ttlMs) {
   const ttl = Number.isFinite(Number(ttlMs))
-    ? Math.max(1000, Number.parseInt(String(ttlMs), 10))
+    ? Math.max(API_PAIR_TOKEN_MIN_TTL_MS, Number.parseInt(String(ttlMs), 10))
     : API_PAIRING_TTL_MS;
   const issuedAt = nowIso();
   const issuedAtMs = Date.now();
@@ -1682,10 +1706,40 @@ function mobileClientId(req) {
   return `ip:${req?.socket?.remoteAddress || 'unknown'}`;
 }
 
-function makeMobileActionCacheKey(req, action, sessionId, actionId = '') {
+function stableStringify(value) {
+  if (value === null) {
+    return 'null';
+  }
+  if (typeof value === 'string') {
+    return JSON.stringify(value);
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+  if (typeof value === 'undefined') {
+    return '"undefined"';
+  }
+  if (typeof value === 'symbol' || typeof value === 'function') {
+    return String(value);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableStringify(item)).join(',')}]`;
+  }
+
+  const entries = Object.keys(value).sort().map((key) => {
+    const safeKey = JSON.stringify(String(key));
+    return `${safeKey}:${stableStringify(value[key])}`;
+  });
+  return `{${entries.join(',')}}`;
+}
+
+function makeMobileActionCacheKey(req, action, sessionId, actionId = '', payload = null) {
   const requestId = normalizeActionId(actionId);
-  if (!requestId) return '';
-  return `${mobileClientId(req)}|${sessionId}|${action}|${requestId}`;
+  const canonicalPayload = stableStringify(payload);
+  const payloadMarker = canonicalPayload ? `|p:${canonicalPayload}` : '';
+  const requestMarker = requestId ? `|id:${requestId}` : '';
+  const base = `${mobileClientId(req)}|${sessionId}|${action}`;
+  return `${base}${requestMarker}${payloadMarker}`;
 }
 
 function cleanupMobileActionCache() {
@@ -1855,27 +1909,44 @@ function isApiAuthorized(req) {
   }
 
   const presentedToken = extractApiToken(req);
+  const pairCheck = inspectPairToken(presentedToken);
+
   if (API_TOKEN && presentedToken && presentedToken === API_TOKEN) {
     return { ok: true };
   }
 
-  if (getPairToken(presentedToken)) {
+  if (pairCheck.kind === 'valid') {
     return { ok: true };
   }
 
   if (!API_TOKEN) {
-    if (!presentedToken) {
+    if (pairCheck.kind === 'missing') {
       return {
         ok: false,
         statusCode: 403,
         error: 'Pairing token required for non-local API access.',
+        errorCode: 'pairingTokenRequired',
       };
     }
-    return {
-      ok: false,
-      statusCode: 403,
-      error: 'Invalid or expired pairing token.',
-    };
+
+    if (pairCheck.kind === 'expired') {
+      return {
+        ok: false,
+        statusCode: 403,
+        error: 'Invalid or expired pairing token.',
+        errorCode: 'tokenExpired',
+        tokenExpired: true,
+      };
+    }
+
+    if (pairCheck.kind === 'invalid') {
+      return {
+        ok: false,
+        statusCode: 403,
+        error: 'Invalid or expired pairing token.',
+        errorCode: 'invalidPairToken',
+      };
+    }
   }
 
   if (!presentedToken) {
@@ -1883,6 +1954,7 @@ function isApiAuthorized(req) {
       ok: false,
       statusCode: 401,
       error: 'Missing API token for non-local API access.',
+      errorCode: 'apiTokenRequired',
     };
   }
 
@@ -1891,6 +1963,7 @@ function isApiAuthorized(req) {
       ok: false,
       statusCode: 403,
       error: 'Invalid API token for non-local API access.',
+      errorCode: pairCheck.kind === 'expired' ? 'tokenExpired' : 'invalidApiToken',
     };
   }
 
@@ -1909,6 +1982,32 @@ function collectBodyRequestError(error) {
       ? 'Payload Too Large'
       : `Invalid JSON: ${error?.message || 'Bad request'}`,
   };
+}
+
+function parsePairingTtlMs(value) {
+  if (value === undefined) {
+    return { ok: true };
+  }
+
+  const normalized = String(value).trim();
+  if (!/^(?:[1-9]\d*)$/.test(normalized)) {
+    return {
+      ok: false,
+      error: 'ttlMs must be a positive integer.',
+      statusCode: 400,
+    };
+  }
+
+  const parsed = Number.parseInt(normalized, 10);
+  if (!Number.isFinite(parsed) || parsed < API_PAIR_TOKEN_MIN_TTL_MS) {
+    return {
+      ok: false,
+      error: `ttlMs must be at least ${API_PAIR_TOKEN_MIN_TTL_MS}.`,
+      statusCode: 400,
+    };
+  }
+
+  return { ok: true, ttlMs: parsed };
 }
 
 function collectBody(req) {
@@ -2359,7 +2458,12 @@ function listMobileSessions() {
 function getSession(sessionId) {
   const session = sessionCatalog.get(sessionId);
   if (!session) return null;
-  ensureTerminalSummary(session, { persistOutput: false, persistCatalog: false });
+  const isTerminalSession = TERMINAL_SESSION_STATES.has(session.state);
+  ensureTerminalSummary(session, {
+    persistOutput: isTerminalSession,
+    persistCatalog: false,
+    outputPath: session.summary?.outputPath || buildSessionOutputPath(session.sessionId),
+  });
   return scrubSessionForTransport(session);
 }
 
@@ -2528,13 +2632,17 @@ function finalizeSessionTerminal(session, toState, reason, processMetadata) {
   }
 
   if (target === 'completed' || target === 'failed' || target === 'cancelled') {
-    ensureTerminalSummary(session, {
-      errorCategory: processMetadata?.errorCategory || session.runtime?.errorCategory,
-      failureReason: processMetadata?.error || session.runtime?.error || '',
-      outputPath: session.summary?.outputPath || buildSessionOutputPath(session.sessionId),
-      persistOutput: true,
-      persistCatalog: true,
-    });
+    const persistTerminalSummary = () => {
+      if (session.state !== target) return;
+      ensureTerminalSummary(session, {
+        errorCategory: processMetadata?.errorCategory || session.runtime?.errorCategory,
+        failureReason: processMetadata?.error || session.runtime?.error || '',
+        outputPath: session.summary?.outputPath || buildSessionOutputPath(session.sessionId),
+        persistOutput: true,
+        persistCatalog: true,
+      });
+    };
+    setImmediate(persistTerminalSummary);
   }
 
   session.runtime.process = null;
@@ -3160,11 +3268,22 @@ function handleApiRequest(req, res) {
           emitResponse(res, 403, {
             ok: false,
             error: 'Pairing token requests are restricted to loopback.',
+            errorCode: 'pairRequestLoopbackOnly',
           });
           return;
         }
 
-        const issued = issuePairToken(body?.ttlMs);
+        const ttl = parsePairingTtlMs(body?.ttlMs);
+        if (!ttl.ok) {
+          emitResponse(res, ttl.statusCode, {
+            ok: false,
+            error: ttl.error,
+            errorCode: 'invalidPairTtl',
+          });
+          return;
+        }
+
+        const issued = issuePairToken(ttl.ttlMs);
         emitResponse(res, 201, {
           ok: true,
           token: issued.token,
@@ -3227,89 +3346,114 @@ function handleApiRequest(req, res) {
   ) {
     const sessionId = parts[3];
     const action = parts[4];
-    const cacheKey = makeMobileActionCacheKey(req, action, sessionId, mobileActionId(req));
-    const cached = getCachedMobileActionResponse(cacheKey);
+    const actionId = mobileActionId(req);
 
-    if (cached) {
-      emitResponse(res, cached.status, cached.payload);
-      return;
-    }
-
-    const sendResponse = (statusCode, payload) => {
-      const responsePayload = payload?.session ? {
-        ...payload,
-        session: emitMobileSessionProjection(payload.session),
-      } : payload;
-      setMobileActionResponse(cacheKey, statusCode, responsePayload);
-      emitResponse(res, statusCode, responsePayload);
+    const respondWithMobileActionCache = (cacheKey, statusCode, payload) => {
+      setMobileActionResponse(cacheKey, statusCode, payload);
+      emitResponse(res, statusCode, payload);
     };
 
     if (action === 'start') {
       return collectBody(req)
-        .then((body) => startSession(sessionId, body || {}))
-        .then((result) => {
-          if (!result.ok) {
-            const errorResponse = {
-              ok: false,
-              error: result.error,
-            };
-            if (result.requiresConfirmation) {
-              errorResponse.requiresConfirmation = true;
-              errorResponse.planDecision = ORCHESTRATOR_PLAN_DECISION.requiresConfirmation;
-            }
-            if (result.planDecision) {
-              errorResponse.planDecision = result.planDecision;
-            }
-            if (result.session) {
-              errorResponse.session = emitMobileSessionProjection(result.session);
-            }
-            if (result.queueStatus) {
-              errorResponse.queueStatus = result.queueStatus;
-            }
-            if (result.errorCode) {
-              errorResponse.errorCode = result.errorCode;
-            }
-            if (result.queueBlocked) {
-              errorResponse.queueBlocked = result.queueBlocked;
-            }
-            if (result.planPreview) {
-              errorResponse.planPreview = result.planPreview;
-            }
-            if (result.errorCategory) {
-              errorResponse.errorCategory = result.errorCategory;
-              errorResponse.recoveryGuidance = result.recoveryGuidance;
-            }
-            sendResponse(result.status || 400, errorResponse);
+        .then((body) => {
+          const payload = body || {};
+          const cacheKey = makeMobileActionCacheKey(
+            req,
+            action,
+            sessionId,
+            actionId,
+            payload,
+          );
+
+          const cached = getCachedMobileActionResponse(cacheKey);
+          if (cached) {
+            emitResponse(res, cached.status, cached.payload);
             return;
           }
 
-          const successResponse = { ok: true, session: result.session };
-          if (result.queued) {
-            successResponse.queued = true;
-            successResponse.reason = result.reason || 'start queued due to runner capacity';
-            successResponse.queueStatus = queueStatusPayload();
-          }
-          successResponse.session = emitMobileSessionProjection(result.session);
-          sendResponse(200, successResponse);
+          return startSession(sessionId, payload)
+            .then((result) => {
+              if (!result.ok) {
+                const errorResponse = {
+                  ok: false,
+                  error: result.error,
+                };
+                if (result.requiresConfirmation) {
+                  errorResponse.requiresConfirmation = true;
+                  errorResponse.planDecision = ORCHESTRATOR_PLAN_DECISION.requiresConfirmation;
+                }
+                if (result.planDecision) {
+                  errorResponse.planDecision = result.planDecision;
+                }
+                if (result.session) {
+                  errorResponse.session = result.session;
+                }
+                if (result.queueStatus) {
+                  errorResponse.queueStatus = result.queueStatus;
+                }
+                if (result.errorCode) {
+                  errorResponse.errorCode = result.errorCode;
+                }
+                if (result.queueBlocked) {
+                  errorResponse.queueBlocked = result.queueBlocked;
+                }
+                if (result.planPreview) {
+                  errorResponse.planPreview = result.planPreview;
+                }
+                if (result.errorCategory) {
+                  errorResponse.errorCategory = result.errorCategory;
+                  errorResponse.recoveryGuidance = result.recoveryGuidance;
+                }
+                respondWithMobileActionCache(cacheKey, result.status || 400, errorResponse);
+                return;
+              }
+
+              const successResponse = { ok: true, session: result.session };
+              if (result.queued) {
+                successResponse.queued = true;
+                successResponse.reason = result.reason || 'start queued due to runner capacity';
+                successResponse.queueStatus = queueStatusPayload();
+              }
+              respondWithMobileActionCache(cacheKey, 200, successResponse);
+            })
+            .catch((error) => {
+              if (error?.statusCode === 413) {
+                respondWithMobileActionCache(cacheKey, 413, { ok: false, error: error.message || 'Payload Too Large' });
+                return;
+              }
+              if (error?.statusCode) {
+                respondWithMobileActionCache(cacheKey, error.statusCode, { ok: false, error: error.message || 'Bad request' });
+                return;
+              }
+              if (error instanceof SyntaxError || (error?.message || '').toLowerCase().includes('json')) {
+                respondWithMobileActionCache(cacheKey, 400, { ok: false, error: `Invalid JSON: ${error.message}` });
+                return;
+              }
+              respondWithMobileActionCache(cacheKey, 500, { ok: false, error: error?.message || 'Internal server error' });
+            });
         })
         .catch((error) => {
-          if (error?.statusCode === 413) {
-            sendResponse(413, { ok: false, error: error.message || 'Payload Too Large' });
-            return;
-          }
-          if (error?.statusCode) {
-            sendResponse(error.statusCode, { ok: false, error: error.message || 'Bad request' });
-            return;
-          }
           if (error instanceof SyntaxError || (error?.message || '').toLowerCase().includes('json')) {
-            sendResponse(400, { ok: false, error: `Invalid JSON: ${error.message}` });
+            emitResponse(res, 400, { ok: false, error: `Invalid JSON: ${error.message}` });
             return;
           }
-          sendResponse(500, { ok: false, error: error?.message || 'Internal server error' });
+          emitResponse(res, 500, { ok: false, error: error?.message || 'Internal server error' });
         });
     }
 
     if (action === 'cancel' || action === 'stop') {
+      const cacheKey = makeMobileActionCacheKey(req, action, sessionId, actionId);
+      const cached = getCachedMobileActionResponse(cacheKey);
+      if (cached) {
+        emitResponse(res, cached.status, cached.payload);
+        return;
+      }
+
+      const sendResponse = (statusCode, payload) => {
+        setMobileActionResponse(cacheKey, statusCode, payload);
+        emitResponse(res, statusCode, payload);
+      };
+
       const result = stopSession(sessionId);
       if (!result.ok) {
         sendResponse(result.status || 400, { ok: false, error: result.error });
@@ -3321,6 +3465,18 @@ function handleApiRequest(req, res) {
     }
 
     if (action === 'retry') {
+      const cacheKey = makeMobileActionCacheKey(req, action, sessionId, actionId);
+      const cached = getCachedMobileActionResponse(cacheKey);
+      if (cached) {
+        emitResponse(res, cached.status, cached.payload);
+        return;
+      }
+
+      const sendResponse = (statusCode, payload) => {
+        setMobileActionResponse(cacheKey, statusCode, payload);
+        emitResponse(res, statusCode, payload);
+      };
+
       const result = retrySession(sessionId);
       if (!result.ok) {
         sendResponse(result.status || 400, { ok: false, error: result.error });
@@ -3337,14 +3493,22 @@ function handleApiRequest(req, res) {
 
     if (action === 'rerun') {
       return collectBody(req)
-        .then((body) => rerunSession(sessionId, body || {}))
-        .then((result) => {
-          if (!result.ok) {
-            sendResponse(result.status || 400, { ok: false, error: result.error });
+        .then((body) => {
+          const payload = body || {};
+          const cacheKey = makeMobileActionCacheKey(req, action, sessionId, actionId, payload);
+          const cached = getCachedMobileActionResponse(cacheKey);
+          if (cached) {
+            emitResponse(res, cached.status, cached.payload);
             return;
           }
 
-          sendResponse(201, {
+          const result = rerunSession(sessionId, payload);
+          if (!result.ok) {
+            respondWithMobileActionCache(cacheKey, result.status || 400, { ok: false, error: result.error });
+            return;
+          }
+
+          respondWithMobileActionCache(cacheKey, 201, {
             ok: true,
             session: result.session,
             rerunFrom: result.rerunFrom,
@@ -3352,18 +3516,18 @@ function handleApiRequest(req, res) {
         })
         .catch((error) => {
           if (error?.statusCode === 413) {
-            sendResponse(413, { ok: false, error: error.message || 'Payload Too Large' });
+            emitResponse(res, 413, { ok: false, error: error.message || 'Payload Too Large' });
             return;
           }
           if (error?.statusCode) {
-            sendResponse(error.statusCode, { ok: false, error: error.message || 'Bad request' });
+            emitResponse(res, error.statusCode, { ok: false, error: error.message || 'Bad request' });
             return;
           }
           if (error instanceof SyntaxError || (error?.message || '').toLowerCase().includes('json')) {
-            sendResponse(400, { ok: false, error: `Invalid JSON: ${error.message}` });
+            emitResponse(res, 400, { ok: false, error: `Invalid JSON: ${error.message}` });
             return;
           }
-          sendResponse(500, { ok: false, error: error?.message || 'Internal server error' });
+          emitResponse(res, 500, { ok: false, error: error?.message || 'Internal server error' });
         });
     }
 

@@ -235,12 +235,17 @@ start_server() {
   local referer="${5:-}"
   local title="${6:-}"
   local timeout_ms="${7:-15000}"
+  local chat_path="/chat/completions"
+
+  if [[ "$provider" == "ollama" ]]; then
+    chat_path="/api/chat"
+  fi
 
   stop_server
   ADHD_ORCHESTRATOR_PROVIDER="$provider" \
   ADHD_ORCHESTRATOR_BASE_URL="$base_url" \
   ADHD_ORCHESTRATOR_MODEL="$model" \
-  ADHD_ORCHESTRATOR_CHAT_PATH="/chat/completions" \
+  ADHD_ORCHESTRATOR_CHAT_PATH="$chat_path" \
   ADHD_ORCHESTRATOR_TIMEOUT_MS="$timeout_ms" \
   ADHD_ORCHESTRATOR_API_KEY="$api_key" \
   ADHD_OPENROUTER_REFERER="$referer" \
