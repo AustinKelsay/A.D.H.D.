@@ -1,0 +1,9 @@
+{
+  "requiredMethods": [
+    "initialize",
+    "thread/start",
+    "turn/start",
+    "turn/interrupt",
+    "thread/read"
+  ]
+}

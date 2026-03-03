@@ -1,0 +1,15 @@
+{
+  "name": "adhd-federated",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "ADHD phase-0 scaffold for federated control-plane and host-node orchestration",
+  "scripts": {
+    "health": "node scripts/health-check.mjs",
+    "schemas:check": "node scripts/check-schemas.mjs",
+    "compat:snapshot": "node scripts/snapshot-app-server-schema.mjs",
+    "compat:check": "node scripts/check-compatibility.mjs",
+    "phase0:verify": "node scripts/health-check.mjs && node scripts/check-schemas.mjs && node scripts/check-compatibility.mjs",
+    "docs:lint": "node scripts/docs-lint.mjs"
+  }
+}

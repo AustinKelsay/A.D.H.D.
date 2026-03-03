@@ -1,40 +1,35 @@
 # ADHD LLM Docs
 
 ## Purpose
-Source of truth for project planning, conventions, and runbooks.
+Source of truth for project planning, phase execution, and implementation contracts.
 
-## Current milestone
-- Setup phase is documented as complete and stabilized.
-- Runtime implementation can begin from `llm/project/phases/session-runtime-phase.md` after handoff criteria are met.
+## Current Milestone
+- Phase 0 (setup foundation) is active.
+- Runtime implementation begins after phase-0 diagnostics, schemas, and compatibility artifacts are in place.
 
 ## Folder Intent
-- `project/` — canonical definitions (`project-overview`, `user-flow`, `tech-stack`, `design-rules`, `project-rules`).
-- `project/` also defines orchestrator-provider planning assumptions for OpenAI-compatible backends.
-- `context/` — focused reference docs for implementation and behavior decisions.
-- `implementation/` — how current runtime behavior is implemented.
-- `workflows/` — repeatable local/dev operations.
-
-## Authoring Rules
-- Keep files under 500 lines where practical.
-- Keep docs in sync with behavior after each meaningful implementation change.
-- Prefer explicit references to source files and scripts.
+- `project/` - canonical product and architecture definitions.
+- `project/phases/` - ordered delivery phases and acceptance criteria.
+- `project/contracts/` - explicit control-plane and host-node boundaries.
+- `workflows/` - repeatable operator/developer runbooks.
 
 ## Current Required Docs
 - `project/project-overview.md`
 - `project/user-flow.md`
 - `project/tech-stack.md`
-- `project/design-rules.md`
 - `project/project-rules.md`
+- `project/backlog.md`
+- `project/contracts/control-plane-host-node.md`
 - `project/phases/setup-phase.md`
 - `project/phases/session-runtime-phase.md`
-- `project/phases/mvp-phase.md`
-- `project/phases/README.md`
 - `project/phases/intent-router-phase.md`
+- `project/phases/multi-host-federation-phase.md`
+- `workflows/phase-0-bootstrap.md`
 
-## Quick Commands (Current)
-- `bun install`
-- `bun run docs:lint` (optional, recommended)
-- `bun run health`
-- `bun run start`
-- `bun run tauri:dev`
-- `bun run test`
+## Phase 0 Commands
+- `npm run health`
+- `npm run schemas:check`
+- `npm run compat:snapshot`
+- `npm run compat:check`
+- `npm run docs:lint`
+- `npm run phase0:verify`

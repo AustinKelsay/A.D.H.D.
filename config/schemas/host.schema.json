@@ -1,0 +1,110 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://adhd.local/schemas/host.schema.json",
+  "title": "HostRecord",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "hostId",
+    "displayName",
+    "auth",
+    "heartbeat",
+    "capabilities",
+    "compatibility",
+    "createdAt",
+    "updatedAt"
+  ],
+  "properties": {
+    "hostId": {
+      "type": "string",
+      "pattern": "^h_[a-z0-9]{6,}$"
+    },
+    "displayName": {
+      "type": "string",
+      "minLength": 1
+    },
+    "auth": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["pending", "enrolled", "revoked"]
+        },
+        "tokenId": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "heartbeat": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "lastSeenAt"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["online", "degraded", "offline"]
+        },
+        "lastSeenAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["codexVersion", "appServer", "mcp", "mcpServer", "features"],
+      "properties": {
+        "codexVersion": { "type": "string" },
+        "appServer": { "type": "boolean" },
+        "mcp": { "type": "boolean" },
+        "mcpServer": { "type": "boolean" },
+        "features": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["multi_agent"],
+          "properties": {
+            "multi_agent": {
+              "type": ["object", "null"],
+              "additionalProperties": false,
+              "required": ["stage", "enabled"],
+              "properties": {
+                "stage": { "type": "string" },
+                "enabled": { "type": "boolean" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "compatibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "checkedAt", "missingMethods"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["unknown", "compatible", "incompatible"]
+        },
+        "checkedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "missingMethods": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

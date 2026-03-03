@@ -1,0 +1,6 @@
+{
+  "codexVersion": "0.106.0",
+  "schemaFile": "compatibility/codex-app-server/0.106.0/codex_app_server_protocol.schemas.json",
+  "methodsFile": "compatibility/codex-app-server/0.106.0/methods.json",
+  "generatedAt": "2026-03-03T19:37:06.844Z"
+}

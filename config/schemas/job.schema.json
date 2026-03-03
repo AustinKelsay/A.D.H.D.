@@ -1,0 +1,88 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://adhd.local/schemas/job.schema.json",
+  "title": "JobRecord",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "jobId",
+    "hostId",
+    "inputText",
+    "state",
+    "delegationMode",
+    "policySnapshot",
+    "timestamps"
+  ],
+  "properties": {
+    "jobId": {
+      "type": "string",
+      "pattern": "^j_[a-z0-9]{6,}$"
+    },
+    "hostId": {
+      "type": "string",
+      "pattern": "^h_[a-z0-9]{6,}$"
+    },
+    "hostJobId": {
+      "type": ["string", "null"]
+    },
+    "inputText": {
+      "type": "string",
+      "minLength": 1
+    },
+    "threadId": {
+      "type": ["string", "null"]
+    },
+    "turnId": {
+      "type": ["string", "null"]
+    },
+    "state": {
+      "type": "string",
+      "enum": [
+        "draft",
+        "queued",
+        "dispatching",
+        "planning",
+        "awaiting_approval",
+        "delegating",
+        "running",
+        "summarizing",
+        "completed",
+        "failed",
+        "cancelled"
+      ]
+    },
+    "delegationMode": {
+      "type": "string",
+      "enum": ["multi_agent", "fallback_workers"]
+    },
+    "policySnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["approvalPolicy", "sandboxPolicy", "maxWorkers", "timeoutMs"],
+      "properties": {
+        "approvalPolicy": { "type": "string" },
+        "sandboxPolicy": { "type": "string" },
+        "maxWorkers": { "type": "integer", "minimum": 1 },
+        "timeoutMs": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "timestamps": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["createdAt", "updatedAt"],
+      "properties": {
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "startedAt": { "type": ["string", "null"], "format": "date-time" },
+        "endedAt": { "type": ["string", "null"], "format": "date-time" }
+      }
+    },
+    "resultSummary": {
+      "type": ["string", "null"]
+    },
+    "artifactPaths": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}
