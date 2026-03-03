@@ -1,126 +1,107 @@
 # ADHD Project Overview (V2 Rebuild)
 
-> One-line purpose: ADHD is a voice-first control layer that turns dictation into managed Codex work, using Codex's app-server and MCP interfaces as the core orchestration surface.
+> One-line purpose: ADHD is a voice-first control plane that turns dictation into managed Codex work across one or more trusted machines.
 
 ## Snapshot
 - Project: ADHD — Agent Dictation Harness Delegator
 - Rebuild mode: from-scratch implementation and docs reset
 - Verified date: 2026-03-03 (US/Pacific)
-- Primary execution engine: Codex CLI
+- Deployment model: one ADHD control plane + one or more ADHD host nodes
+- Primary execution engine: Codex CLI on each host node
 - Primary control protocol: `codex app-server` JSON-RPC
 - Tool integration path: MCP (`codex mcp`, `mcp_servers` in config)
-- Delegation path: Codex multi-agent roles (experimental), with a stable fallback path
+- Delegation path: Codex multi-agent roles (experimental), with fallback worker execution
 
 ## Mission
-Dictate once, delegate reliably.
+Dictate once, delegate reliably, across machines.
 
-You speak or type a task into ADHD. ADHD sends it to a dedicated Codex "conductor" session with strict system instructions. The conductor plans and delegates coding work to other Codex workers, while ADHD tracks state, approvals, logs, and outcomes in one control plane.
-
-## What Changed From The Previous Plan
-- Old plan: ADHD had its own orchestrator/provider layer in front of Codex.
-- New plan: ADHD uses Codex-native orchestration surfaces directly:
-  - `codex app-server` for session/thread/turn lifecycle
-  - MCP for external tools and service bridges
-  - multi-agent role spawning when enabled
-
-This reduces custom planning infrastructure and keeps orchestration closer to the runtime that actually executes work.
+You speak or type a task into ADHD. ADHD routes that task to a selected host node. That host runs a dedicated Codex conductor session (and workers) locally. ADHD provides unified control, approvals, and history from one app.
 
 ## Target Architecture
 1. Input layer
-- Desktop and phone clients capture dictation/text and submit a job to ADHD.
+- Desktop and phone clients submit tasks to ADHD control plane.
 
-2. ADHD control service
-- Maintains job records, user actions, and UI-facing APIs.
-- Hosts policy defaults (sandbox, approvals, allowed workspaces, runtime limits).
+2. Control plane (central ADHD app)
+- Owns operator UX, host registry, job routing, and global run catalog.
+- Maintains policy defaults and per-host policy overrides.
 
-3. Codex bridge (core)
-- ADHD starts/owns a `codex app-server` process.
-- ADHD initializes a protocol session and creates a long-lived conductor thread.
-- Job execution runs through `thread/start`, `turn/start`, `turn/interrupt`, and thread status events.
+3. Host nodes (one per machine)
+- Each host runs its own local Codex runtime.
+- Each host executes conductor/worker activity only on that local machine.
 
-4. Conductor agent
-- Conductor has a strict system prompt: plan, delegate, verify, summarize.
-- It does not silently bypass approvals or sandbox policy.
+4. Codex bridge per host
+- Host starts/owns `codex app-server`.
+- Host maps `thread/start`, `turn/start`, `turn/interrupt`, and events into host-local execution state.
 
-5. Worker delegation
-- Preferred path: Codex multi-agent roles via `[agents]` config and the `multi_agent` feature.
-- Stable fallback path: ADHD creates separate worker threads (or `codex exec` jobs) per subtask and aggregates results back to conductor.
+5. Delegation model per host
+- Preferred path: multi-agent roles when enabled.
+- Fallback path: host-managed worker threads or bounded `codex exec` jobs.
 
-6. Tooling integration via MCP
-- Codex can connect to ADHD-specific MCP servers (or other MCP servers) declared in config.
-- ADHD can also expose MCP tools for task intake, run catalog lookup, and policy checks.
+6. Tooling via MCP
+- Hosts can expose/use MCP tools.
+- Control plane can inspect host MCP capability and configuration status.
 
-7. Persistence + observability
-- ADHD stores job/session mappings (`jobId`, `threadId`, `turnId`, worker refs), event timelines, artifacts, and summaries.
-- All critical transitions are replayable after restart.
+7. Persistence and observability
+- Control plane stores global job state and host routing metadata.
+- Hosts store execution artifacts and stream status back to control plane.
 
 ## Trust and Safety Model
-- Single-owner trusted machine model remains the default.
-- ADHD still enforces explicit policy at orchestration boundaries:
-  - approval mode defaults and escalation handling
-  - sandbox mode defaults and per-job overrides
-  - workspace boundaries and runtime limits
-- Any feature marked experimental in Codex is wrapped with a fallback path and feature flag in ADHD.
+- Trusted-owner model remains: all execution happens on owned machines.
+- Control plane never assumes direct filesystem access across hosts.
+- Host enrollment/authentication is explicit and revocable.
+- Approval/sandbox policy is enforced per host with clear operator visibility.
 
-## Canonical State Model
-- `draft`: input captured, not yet submitted
-- `queued`: accepted, waiting for Codex slot
-- `planning`: conductor is interpreting request
-- `awaiting_approval`: Codex requested approval/user input
-- `delegating`: conductor is spawning/assigning workers
-- `running`: at least one worker turn active
-- `summarizing`: conductor preparing final output
-- `completed`: final result delivered
-- `failed`: terminal error
-- `cancelled`: user or policy stop
+## Canonical Job States
+- `draft`
+- `queued`
+- `dispatching`
+- `planning`
+- `awaiting_approval`
+- `delegating`
+- `running`
+- `summarizing`
+- `completed`
+- `failed`
+- `cancelled`
 
 ## In Scope (V2)
-- macOS-first rebuild with desktop + phone control surface
-- Codex app-server integration as default runtime
-- Dictation/text input to conductor-turn execution
-- Worker delegation via multi-agent (flagged) or fallback worker threads
-- MCP-backed tool extension points
-- Job catalog with durable history
+- Single control plane with multi-host orchestration support.
+- Manual host targeting first; optional auto-routing later.
+- Desktop + phone controls across all registered hosts.
+- Host-aware run catalog and replay.
 
 ## Out of Scope (V2)
-- Hosted multi-tenant ADHD service
-- Enterprise IAM/policy engine
-- Full autonomous background operation without user task input
-- Non-Codex worker engines
+- Multi-tenant SaaS control plane.
+- Enterprise IAM and policy federation.
+- Cross-host shared filesystem semantics.
 
 ## Success Criteria
-- A spoken task can complete end-to-end through conductor + worker execution.
-- ADHD can show true live status from Codex protocol events.
-- Approval and interruption flows work from both desktop and phone.
-- Multi-agent can be enabled safely, and fallback execution still works when disabled.
-- Restart recovery restores active/incomplete jobs without data loss.
+- A task can be routed to Host A or Host B from the same app.
+- Each host executes locally with accurate live status in one unified UI.
+- Approval/interrupt/retry works per host from desktop and phone.
+- Host outages degrade gracefully without corrupting global job state.
 
 ## Key Risks and Open Decisions
-- `app-server` and `multi_agent` are currently documented as experimental surfaces; APIs may shift.
-- Need a clear policy for when ADHD delegates via multi-agent vs fallback workers.
-- Need to define minimum Codex version support and compatibility checks at startup.
-- Need to choose default transport (`stdio://` vs `ws://127.0.0.1:PORT`) for the app-server bridge.
+- `app-server` and `multi_agent` remain experimental; API churn is a risk.
+- Need host enrollment/auth model (token vs mutual TLS).
+- Need default routing policy (`manual_only` vs `least_busy` later).
+- Need per-host compatibility checks and upgrade strategy.
 
 ## Experimental Churn Guardrails
 1. Capability gate at startup
-- ADHD must probe required methods/features and block unsafe modes when unavailable.
+- Probe required methods/features on each host before accepting routed jobs.
 
 2. Protocol contract snapshots
-- Commit generated app-server JSON schema snapshots per supported Codex version.
-- Run CI compatibility checks against those snapshots before release.
+- Commit schema snapshots and compatibility manifests.
 
 3. Adapter isolation
-- Keep one internal adapter boundary so protocol changes are localized.
-- Unknown notifications must be logged and ignored safely by default.
+- Keep app-server changes isolated behind one adapter boundary.
 
 4. Multi-agent kill switch
-- `multi_agent` can be disabled instantly via config/feature flag.
-- Disabled or unsupported states must auto-route to fallback workers.
+- Disable `multi_agent` per host instantly and route to fallback mode.
 
 5. Parity tests
-- Critical scenarios (plan, run, interrupt, summarize) must pass in both modes:
-  - `delegationMode=multi_agent`
-  - `delegationMode=fallback_workers`
+- Critical flows pass in both delegation modes on every supported host profile.
 
 ## Source References
 - Codex MCP docs: https://developers.openai.com/codex/mcp

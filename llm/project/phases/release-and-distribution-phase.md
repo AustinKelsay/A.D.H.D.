@@ -1,29 +1,14 @@
-# ADHD Release and Distribution Phase (Phase 8)
+# ADHD Release and Distribution Phase (Phase 9)
 
 ## Objective
-Make onboarding and upgrades repeatable across fresh machines.
+Make new control-plane and host-node deployments repeatable.
 
 ## In Scope
-- Release checklist
-- Compatibility matrix and upgrade notes
-- New-machine bootstrap flow
-
-## Out of Scope
-- Hosted/enterprise rollout automation
-
-## Work Items
-1. Release checklist
-- Validate protocol compatibility, diagnostics, and key runtime flows.
-
-2. Compatibility matrix
-- Track tested Codex versions and feature availability assumptions.
-
-3. Upgrade and rollback notes
-- Define migration and rollback steps for schema/config changes.
-
-4. First-run onboarding
-- Document install/auth/config steps and expected prompts.
+- release checklist
+- host compatibility matrix
+- upgrade and rollback playbooks
+- first-run onboarding for control plane and host nodes
 
 ## Exit Criteria
-- A new machine can get to first successful job with a documented path.
-- Upgrade behavior is explicit and reversible.
+- a fresh control plane + fresh host can complete first job reliably
+- upgrades are explicit, testable, and reversible

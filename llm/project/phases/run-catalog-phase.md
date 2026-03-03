@@ -1,29 +1,13 @@
-# ADHD Run Catalog Phase (Phase 5)
+# ADHD Run Catalog Phase (Phase 6)
 
 ## Objective
-Persist and expose job history that is useful for replay, auditing, and recovery.
+Provide durable, host-aware run history and replay workflows.
 
 ## In Scope
-- Persistent job index with thread/turn linkage
-- Search/filter by state/date/repo/delegation mode
-- Rerun and clone-run entry points
-
-## Out of Scope
-- BI dashboards
-
-## Work Items
-1. Catalog schema finalization
-- Store conductor + worker references, policy snapshot, artifacts, terminal summary.
-
-2. Search and filters
-- Add operator-centric filters and quick lookup.
-
-3. Replay operations
-- Implement rerun/clone using stored normalized input and policy defaults.
-
-4. Retention policy
-- Define expiration/cleanup strategy for logs and artifact files.
+- host-aware catalog schema
+- filters by host/state/repo/date
+- rerun and clone-run with preserved host context
 
 ## Exit Criteria
-- Operators can quickly find and replay historical jobs.
-- Catalog survives restarts and remains internally consistent.
+- operators can find and replay jobs across hosts quickly
+- host linkage remains correct after restarts

@@ -1,38 +1,22 @@
 # ADHD Intent Router Phase (Phase 2)
 
 ## Objective
-Define the conductor contract that transforms user intent into delegation-ready Codex tasks.
+Define conductor planning contracts and delegation behavior for host-local execution.
 
 ## In Scope
-- Input normalization contract
-- Conductor system/developer prompt design
-- Plan JSON contract validation
-- Delegation mode selection rules (`multi_agent` vs fallback)
-
-## Out of Scope
-- Full mobile UX
-- Long-term analytics
+- input normalization
+- conductor prompt package
+- structured plan validation
+- delegation policy (`multi_agent` vs fallback)
 
 ## Work Items
-1. Input normalization
-- Convert voice/text into a stable task object with repo/path constraints.
-
-2. Conductor prompt package
-- Version prompt files used to control planning/delegation behavior.
-
-3. Plan contract
-- Require structured plan output (subtasks, role hints, risk flags, acceptance checks).
-- Reject malformed plans before execution.
-
-4. Delegation policy
-- If multi-agent is supported and enabled, use role-based delegation.
-- Otherwise execute through fallback worker path.
-- Allow runtime kill-switch override to force fallback mode for all new jobs.
-
-5. Approval policy integration
-- Ensure risky operations route through explicit approval events.
+1. Normalize voice/text to stable task object.
+2. Version conductor prompt files.
+3. Validate structured plan output before execution.
+4. Enforce delegation mode policy and kill switch.
+5. Include optional host constraints in plan metadata.
 
 ## Exit Criteria
-- Same input yields reproducible plan shape.
-- Delegation mode is explicit and logged for every job.
-- Invalid plan output fails safely before worker execution.
+- same input yields reproducible plan shape
+- invalid plans fail safely
+- delegation mode is explicit and auditable

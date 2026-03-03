@@ -1,69 +1,60 @@
-# ADHD Project Rules (V2)
+# ADHD Project Rules (V2 Federated)
 
 ## Purpose
-Set implementation and documentation rules for the rebuild.
-
-## Directory Contracts
-- Planning source of truth: `llm/project/*` and `llm/project/phases/*`
-- Runtime implementation must reference these contracts directly.
+Set implementation and documentation rules for federated multi-host ADHD.
 
 ## Runtime Rules
 1. Codex-native control first
-- Prefer app-server protocol over shelling ad-hoc CLI commands.
-- Use `codex exec` only as explicit fallback paths.
+- Use app-server protocol as primary interface.
+- Use `codex exec` only as explicit fallback.
 
-2. No silent policy bypass
-- ADHD must not enable bypass flags automatically.
-- Approval/sandbox choices are explicit, logged, and user-visible.
+2. Host-local execution only
+- Jobs execute on their assigned host node only.
+- Control plane does not run arbitrary shell commands on behalf of hosts.
 
-3. Stable method boundaries
-- Protocol integration must be wrapped in typed adapter functions.
-- Required baseline methods for ADHD runtime:
-  - `initialize`
-  - `thread/start`
-  - `turn/start`
-  - `turn/interrupt`
-  - `thread/read`
+3. Explicit policy and auth
+- No silent sandbox/approval bypass.
+- Host enrollment credentials must be revocable and scoped.
 
-4. Event-sourced state transitions
-- Every user-visible state change is backed by stored event metadata.
-- Terminal states are immutable except via explicit retry/clone actions.
+4. Stable method boundaries
+- App-server integration behind typed adapter boundary.
+- Required baseline: `initialize`, `thread/start`, `turn/start`, `turn/interrupt`, `thread/read`.
 
-5. Experimental feature isolation
-- Any use of `multi_agent` must be guarded by:
-  - capability check
-  - feature flag
-  - fallback path
-- Experimental methods must never be assumed available from version string alone; runtime capability checks are required.
+5. Experimental isolation
+- `multi_agent` usage requires capability check, feature flag, and fallback path.
 
 ## Data Model Rules
-Each ADHD job record must include:
+Each job must include:
 - `jobId`
-- `inputText` (+ optional transcript metadata)
+- `hostId`
+- `hostJobId` (or host correlation id)
 - `threadId`
-- `turnId` (current/last)
+- `turnId`
 - `delegationMode` (`multi_agent` or `fallback_workers`)
 - `state`
-- `timestamps` (`createdAt`, `updatedAt`, `startedAt`, `endedAt`)
-- `policySnapshot` (approval/sandbox/runtime limits)
-- `resultSummary` and artifact links (when terminal)
+- `policySnapshot`
+- timestamps and terminal summary/artifact references
 
-## Documentation Rules
-- Behavior-affecting changes must update relevant files in `llm/project/*` and phase docs.
-- If Codex protocol assumptions change, update:
-  - `project-overview.md`
-  - `tech-stack.md`
-  - affected phase docs
-- Keep dates when noting verified external behavior.
+Each host record must include:
+- `hostId`
+- display name
+- auth status
+- heartbeat status
+- capability snapshot
+- version/compatibility status
 
 ## Testing Rules
-Minimum required coverage for each milestone:
-- protocol adapter unit tests
-- job state transition tests
-- approval/interrupt path tests
-- restart recovery tests
+Required coverage:
+- protocol adapter tests
+- state transition tests
+- approval/interrupt tests
+- host routing tests
+- host offline/recovery tests
+- restart reconciliation tests
 
-For experimental paths:
-- explicit fallback behavior tests are required before merge.
-- parity tests across both delegation modes (`multi_agent`, `fallback_workers`) are required for critical flows.
-- compatibility tests against committed app-server schema snapshots are required before release.
+Experimental paths require:
+- delegation parity across `multi_agent` and `fallback_workers`
+- compatibility checks against committed schema snapshots
+
+## Documentation Rules
+Behavior-affecting changes must update `llm/project/*` and relevant phase docs in the same change.

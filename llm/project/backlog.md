@@ -1,152 +1,169 @@
-# ADHD Backlog (V2 Rebuild)
+# ADHD Backlog (V2 Federated Rebuild)
 
 ## Legend
 - Owner: `you`, `agent`, `shared`
 - Size: `S` (<=1 day), `M` (1-3 days), `L` (3+ days)
 
-## Phase 0: Foundation
+## Phase 0: Setup Foundation
 
-### ADHD2-001 Initialize rebuild docs and contracts
+### ADHD2-001 Docs and contracts reset
 - Owner: shared
 - Size: S
 - Depends on: none
 - Done when:
-  - project and phase docs reflect V2 architecture
-  - old planner-provider assumptions are removed or marked legacy
+  - docs reflect federated control-plane + host-node architecture
 
 ### ADHD2-002 Codex capability diagnostics
 - Owner: agent
 - Size: M
 - Depends on: ADHD2-001
 - Done when:
-  - startup checks verify `codex app-server`, `codex mcp`, `codex mcp-server`
-  - diagnostics report experimental feature availability (`multi_agent`)
+  - host diagnostics verify `codex app-server`, `codex mcp`, `codex mcp-server`
+  - diagnostics report `multi_agent` availability
 
-### ADHD2-003 Base data schema
+### ADHD2-003 Base schemas
 - Owner: agent
 - Size: M
 - Depends on: ADHD2-001
 - Done when:
-  - job/session schema includes `jobId`, `threadId`, `turnId`, `delegationMode`, `policySnapshot`
-  - schema validation fails loudly on missing required fields
+  - schema includes host records and host-aware job fields (`hostId`, `hostJobId`)
 
-### ADHD2-004 Protocol compatibility harness
+### ADHD2-004 Compatibility harness
 - Owner: agent
 - Size: M
 - Depends on: ADHD2-002
 - Done when:
-  - app-server JSON schema snapshots are generated and committed for supported Codex versions
-  - CI diff checks fail on incompatible protocol shape changes without explicit adapter updates
+  - app-server schema snapshots are committed
+  - compatibility checks fail fast on required API drift
 
-## Phase 1: App-Server Runtime
+## Phase 1: Session Runtime (Host-local)
 
-### ADHD2-101 Build app-server process manager
+### ADHD2-101 App-server process manager
 - Owner: agent
 - Size: L
 - Depends on: ADHD2-002
-- Done when:
-  - ADHD can start/stop/reconnect a codex app-server process
-  - stdio and ws transport modes are both supported behind one adapter
 
-### ADHD2-102 Implement protocol adapter (v2)
+### ADHD2-102 Protocol adapter v2
 - Owner: agent
 - Size: L
 - Depends on: ADHD2-101
-- Done when:
-  - adapter supports initialize, thread/start, turn/start, turn/interrupt, thread/read
-  - notifications are streamed into typed event handlers
 
-### ADHD2-103 Job state machine integration
+### ADHD2-103 Host-local job state machine
 - Owner: agent
 - Size: M
 - Depends on: ADHD2-102
-- Done when:
-  - ADHD job states map deterministically from protocol events
-  - invalid transitions are blocked with typed errors
 
-## Phase 2: Conductor + Delegation
+## Phase 2: Intent + Delegation
 
-### ADHD2-201 Conductor prompt and plan contract
+### ADHD2-201 Conductor prompt package
 - Owner: you
 - Size: M
 - Depends on: ADHD2-103
-- Done when:
-  - conductor system/developer prompts are versioned in repo
-  - structured plan output contract is validated before execution
 
 ### ADHD2-202 Multi-agent delegation path
 - Owner: agent
 - Size: L
 - Depends on: ADHD2-201
-- Done when:
-  - ADHD can run a job through Codex multi-agent when feature is enabled
-  - role map and runtime limits are configurable
 
 ### ADHD2-203 Fallback worker delegation path
 - Owner: agent
 - Size: L
 - Depends on: ADHD2-201
-- Done when:
-  - ADHD can complete the same delegation scenarios without multi-agent
-  - fallback is automatic when capability check fails
 
-### ADHD2-204 Delegation parity and kill-switch tests
+### ADHD2-204 Delegation parity and kill-switch
 - Owner: agent
 - Size: M
 - Depends on: ADHD2-202, ADHD2-203
-- Done when:
-  - critical flows pass in both modes (`multi_agent`, `fallback_workers`)
-  - disabling `multi_agent` at runtime routes all new jobs to fallback with no manual intervention
 
-## Phase 3: Dictation + UI MVP
+## Phase 3: MVP (Single Host Baseline)
 
-### ADHD2-301 Unified task intake (voice + text)
+### ADHD2-301 Unified intake (voice + text)
 - Owner: shared
 - Size: M
 - Depends on: ADHD2-103
-- Done when:
-  - voice and text inputs share one normalized job contract
-  - both desktop and phone can submit jobs
 
-### ADHD2-302 Live run controls
+### ADHD2-302 Live controls
 - Owner: agent
 - Size: M
 - Depends on: ADHD2-301, ADHD2-201
-- Done when:
-  - UI supports start, approve/reject, interrupt, retry
-  - state updates stream in near real-time
 
-## Phase 4: MCP Tooling
+## Phase 4: Mobile Control
 
-### ADHD2-401 ADHD MCP server for internal tools
+### ADHD2-401 Mobile action parity
 - Owner: agent
-- Size: L
-- Depends on: ADHD2-201
-- Done when:
-  - Codex can call ADHD MCP tools for run lookup/policy context
-  - tool calls are audited and access-scoped
+- Size: M
+- Depends on: ADHD2-302
 
-### ADHD2-402 MCP server management UX
-- Owner: you
+### ADHD2-402 Mobile auth and reconnect
+- Owner: agent
 - Size: M
 - Depends on: ADHD2-401
-- Done when:
-  - users can inspect configured MCP servers/status in ADHD diagnostics
 
-## Phase 5: Reliability + Release
+## Phase 5: Multi-Host Federation
 
-### ADHD2-501 Restart recovery and reconciliation
+### ADHD2-501 Host registry and enrollment
 - Owner: agent
 - Size: L
 - Depends on: ADHD2-302
 - Done when:
-  - in-flight jobs recover cleanly after ADHD restart
-  - stale job handling is deterministic and test-covered
+  - control plane can register/revoke hosts with scoped auth
 
-### ADHD2-502 Hardening and release checklist
+### ADHD2-502 Host heartbeat and capability sync
+- Owner: agent
+- Size: M
+- Depends on: ADHD2-501
+- Done when:
+  - host online/degraded/offline state is reliable and visible
+
+### ADHD2-503 Host routing and dispatch
+- Owner: agent
+- Size: L
+- Depends on: ADHD2-502
+- Done when:
+  - operator can target host per job
+  - dispatch and interrupt are host-aware
+
+### ADHD2-504 Host outage handling
+- Owner: agent
+- Size: M
+- Depends on: ADHD2-503
+- Done when:
+  - host outage handling is deterministic and test-covered
+
+## Phase 6: Run Catalog
+
+### ADHD2-601 Host-aware catalog schema
+- Owner: agent
+- Size: M
+- Depends on: ADHD2-503
+
+### ADHD2-602 Cross-host search and replay
+- Owner: agent
+- Size: M
+- Depends on: ADHD2-601
+
+## Phase 7: Reliability and Observability
+
+### ADHD2-701 Recovery and reconciliation
+- Owner: agent
+- Size: L
+- Depends on: ADHD2-602
+
+### ADHD2-702 Drift and health automation
+- Owner: agent
+- Size: M
+- Depends on: ADHD2-701
+
+## Phase 8: Review and Hardening
+
+### ADHD2-801 Safety and fallback hardening
 - Owner: shared
 - Size: M
-- Depends on: all MVP-critical tickets
-- Done when:
-  - protocol, approval, and fallback paths pass release sweeps
-  - onboarding checklist is reproducible on a new machine
+- Depends on: ADHD2-702
+
+## Phase 9: Release and Distribution
+
+### ADHD2-901 Host bootstrap and upgrade runbook
+- Owner: shared
+- Size: M
+- Depends on: ADHD2-801
