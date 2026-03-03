@@ -1,77 +1,62 @@
-# ADHD User Flow
+# ADHD User Flow (V2)
 
 ## Purpose
-Define how users move through ADHD from speech or text input to managed codex execution and result review.
+Define the new end-to-end flow for dictation-driven Codex orchestration through app-server and MCP.
 
-## Audience and Personas
-- **Solo operator:** one machine owner orchestrating coding tasks via dictation.
-- **Mobile operator:** controls the same orchestrator from phone while away from keyboard.
-- **Desktop operator:** uses the same controls from the local desktop app.
+## Primary Actors
+- Operator: person dictating tasks from desktop or phone
+- ADHD service: accepts input, manages job lifecycle, stores history
+- Codex conductor: top-level planning/delegation session
+- Codex workers: delegated coding sessions/threads
 
-## Primary States
-- `idle`: No active task; capture and session controls available.
-- `capturing`: Dictation capture in progress.
-- `processing`: Transcript is parsed into a task intent.
-- `planning`: Orchestrator agent resolves intent into execution spec.
-- `queued`: Task is waiting for a codex slot.
-- `running`: One or more codex sessions active.
-- `completed`: Session finished successfully.
-- `failed`: Session ended with error.
-- `cancelled`: Session stopped by user.
+## Primary Job States
+- `draft`
+- `queued`
+- `planning`
+- `awaiting_approval`
+- `delegating`
+- `running`
+- `summarizing`
+- `completed`
+- `failed`
+- `cancelled`
 
-## End-to-End Flows
+## Flow A: Voice To Completed Result
+1. User dictates or types a task.
+2. ADHD normalizes input and creates a `queued` job.
+3. ADHD submits the task into the conductor thread (`turn/start`).
+4. Job enters `planning` while conductor interprets and structures execution.
+5. If approvals/input are requested by Codex protocol events, job enters `awaiting_approval`.
+6. ADHD forwards approval/input decisions back to Codex.
+7. Conductor delegates work (`delegating`) using multi-agent roles or fallback worker threads.
+8. Workers execute and stream events; job stays `running`.
+9. Conductor synthesizes outcomes and final response (`summarizing`).
+10. ADHD stores final summary, artifacts, and transitions to `completed`.
 
-### 1) Desktop native flow
-1. User clicks mic or uses hotkey.
-2. Frontend routes to native dictation runtime (or fallback where unavailable).
-3. Transcript appears with confidence metadata.
-4. User picks or confirms profile (`basic`, `edit`, `git`, `release`).
-5. Session enters `planning` while orchestrator agent requests a codex invocation plan from an OpenAI-compatible provider.
-6. ADHD validates the plan against profile constraints and confidence thresholds, then auto-runs or waits for user confirmation.
-7. To execute a plan requiring confirmation, the client retries `POST /api/sessions/:id/start` with `{"confirm":true}`.
-8. Session appears in the session list with live log stream.
-9. User monitors or adjusts, then archives/reads completion summary.
+## Flow B: Interrupt / Cancel
+1. User presses stop/cancel.
+2. ADHD issues `turn/interrupt` (and worker interrupts if needed).
+3. ADHD waits for terminal notifications and reconciles state.
+4. Job becomes `cancelled` or `failed` with reason metadata.
 
-### 2) Phone flow
-1. Phone connects to orchestrator through paired session channel.
-2. Submit text or use phone dictation if available.
-3. Set mode profile and start the run.
-4. Wait through planning and queue/running states.
-5. View the live status stream and pause/cancel/retry as needed.
-6. Open session detail from any screen.
+## Flow C: Approval Gate
+1. Codex emits approval-required event.
+2. ADHD captures context (command/file/tool call + rationale) and surfaces it to UI.
+3. User approves or rejects.
+4. ADHD returns decision through protocol response.
+5. Job resumes or terminates based on decision.
 
-### 3) Multi-session orchestration flow
-1. Submit multiple tasks with distinct profiles.
-2. Orchestrator enqueues up to configured parallel limit.
-3. Sessions transition independently through lifecycle states.
-4. Cancel or reprioritize a session manually.
-5. Completed sessions remain in run catalog with logs and exit metadata.
+## Flow D: Restart Recovery
+1. ADHD process restarts.
+2. ADHD restores persisted job/session mapping.
+3. ADHD reconnects to Codex app-server and refreshes thread/job status.
+4. Stale in-flight jobs are reconciled into terminal or resumed states with explicit markers.
 
-### 4) Git/GitHub operational flow
-1. Submit a git-oriented task (e.g., `run tests`, `create branch`, `open PR`).
-2. Select the `git` profile.
-3. Orchestrator agent adds a plan summary and confidence signal using configured provider.
-4. Codex runs on host machine using existing auth/tooling.
-5. Log output and command effects are displayed and recorded.
-6. Optional confirmation may gate push/merge style actions.
-
-## Decision Points
-- Profile selection is explicit per session.
-- Destructive actions can require optional preflight confirmation.
-- Host availability gating: if codex not found, queueing is blocked with remediation text.
-- Planning provider availability: endpoint or planning errors are hard-fail with explicit remediation; no execution fallback is attempted.
-- Planning confidence gating:
-  - `release` always requires explicit confirmation.
-  - `git` requires higher confidence than `basic`/`edit`.
-  - Missing confidence requires hard-fail with retry/review action.
-
-## Error Flows
-- Host disconnected: session controls disabled; resume when host reconnects.
-- Profile mismatch: session fails before launch with actionable correction hints.
-- Permission issue from host tooling: surface raw command output plus next-step suggestions.
-- Orchestrator endpoint error: surface provider name, status code, and retry suggestion; keep queued session visible with error context.
-
-## Exit Criteria by Flow
-- One session can be started and completed from either desktop or phone.
-- Session status and logs remain visible across both clients.
-- A user can cancel and rerun a failed session in one click/tap.
+## UX Requirements
+- Phone and desktop must show the same authoritative status.
+- Every approval request must be actionable with one clear decision.
+- Each completed job must include:
+  - final summary
+  - worker activity summary
+  - timestamps and duration
+  - links to logs/artifacts

@@ -1,44 +1,38 @@
-# ADHD Intent Router Phase
+# ADHD Intent Router Phase (Phase 2)
 
-## Goals
-- Turn incoming transcript/text into a codex-friendly task spec quickly and predictably through a provider-agnostic orchestrator layer.
-- Make session creation deterministic from profile selection and user intent.
+## Objective
+Define the conductor contract that transforms user intent into delegation-ready Codex tasks.
 
-## Inputs
-- `llm/project/user-flow.md`
-- `llm/project/project-overview.md`
-- `llm/project/project-rules.md`
+## In Scope
+- Input normalization contract
+- Conductor system/developer prompt design
+- Plan JSON contract validation
+- Delegation mode selection rules (`multi_agent` vs fallback)
 
-## Scope
-- In scope: normalization, provider-agnostic orchestration, intent fields, profile defaults, codex arg template mapping.
-- Out of scope: mobile transport and full UI orchestration.
+## Out of Scope
+- Full mobile UX
+- Long-term analytics
 
-## Steps (per feature)
-1. **Transcript contract**
-   - Define normalized task object (`rawText`, `normalizedText`, `workType`, `target`, `constraints`, `profileHint`).
-2. **Orchestrator provider contract**
-   - Add a strict JSON input/output contract for an OpenAI-compatible planning endpoint.
-   - Support configurable provider endpoints (`ollama`, `openrouter`, `maple-ai`, custom) behind a stable adapter.
-3. **Routing rules**
-   - Map task categories to execution profiles (`basic`, `edit`, `git`, `release`).
-4. **Template mapping**
-   - Create codex command templates (per profile) and apply deterministic defaults.
-5. **Override handling**
-   - Accept explicit user profile and flag overrides at submit time.
-6. **Resilience and preview**
-   - Include provider identity, raw confidence score, required threshold by profile, and requires-confirmation state in the task plan object.
-  - Populate a deterministic `planDecision` value (`autoRun` or `requiresConfirmation`) from confidence + profile policy.
-  - Display the planned codex invocation before launch in non-destructive/optional high-risk mode.
-  - Expose `requiresConfirmation` and `planDecision` in API responses so the client can request `/start` retry with explicit confirmation.
-  - On planner/provider failure, return explicit failed-planning state and do not continue.
+## Work Items
+1. Input normalization
+- Convert voice/text into a stable task object with repo/path constraints.
 
-### Verification coverage
-- `bash scripts/adhd-204-launch-preview-sweep.sh` (preview surface behavior and risky-session gating)
-- `bash scripts/adhd-205-adapter-sweep.sh` (provider-agnostic planning requests, header/model/endpoint matrix, malformed-plan hard-fail)
-- `bash scripts/adhd-206-confidence-gating-sweep.sh` (confidence thresholds and blocked planning failure signaling)
+2. Conductor prompt package
+- Version prompt files used to control planning/delegation behavior.
+
+3. Plan contract
+- Require structured plan output (subtasks, role hints, risk flags, acceptance checks).
+- Reject malformed plans before execution.
+
+4. Delegation policy
+- If multi-agent is supported and enabled, use role-based delegation.
+- Otherwise execute through fallback worker path.
+- Allow runtime kill-switch override to force fallback mode for all new jobs.
+
+5. Approval policy integration
+- Ensure risky operations route through explicit approval events.
 
 ## Exit Criteria
-- Same input text yields stable, inspectable task output.
-- Wrong or unsupported task types fail fast with clear re-prompt text.
-- Profile routing works consistently for common git/edit/test commands.
-- Provider config missing/wrong route fails with explicit setup guidance.
+- Same input yields reproducible plan shape.
+- Delegation mode is explicit and logged for every job.
+- Invalid plan output fails safely before worker execution.

@@ -1,96 +1,69 @@
-# ADHD Project Rules
+# ADHD Project Rules (V2)
 
 ## Purpose
-Establish conventions for code structure, documentation quality, and execution safety in ADHD.
+Set implementation and documentation rules for the rebuild.
 
-## Directory Map
-```text
-llm/
-├── README.md
-├── project/
-│   ├── project-overview.md
-│   ├── user-flow.md
-│   ├── tech-stack.md
-│   ├── design-rules.md
-│   ├── project-rules.md
-│   └── phases/
-│       ├── README.md
-│       ├── session-runtime-phase.md
-│       ├── setup-phase.md
-│       ├── mvp-phase.md
-│       ├── intent-router-phase.md
-│       ├── mobile-control-phase.md
-│       ├── run-catalog-phase.md
-│       ├── reliability-and-observability-phase.md
-│       ├── release-and-distribution-phase.md
-│       ├── review-and-hardening-phase.md (optional)
-server.js
-src-tauri/
-public/
-package.json
-```
+## Directory Contracts
+- Planning source of truth: `llm/project/*` and `llm/project/phases/*`
+- Runtime implementation must reference these contracts directly.
 
-## Standards and Conventions
-- Files should stay under 500 lines when possible.
-- Function names should be descriptive and stateful with clear auxiliaries (`isLoading`, `hasError`, `isRunning`).
-- Keep conditionals small and explicit.
-- Functions should include short headers or doc comments.
-- Use pure/functional composition at the boundaries where process orchestration is not stateful.
-- Apply composition for orchestrator-provider adapters and template resolution.
-- Make command handlers fail fast and emit explicit errors.
+## Runtime Rules
+1. Codex-native control first
+- Prefer app-server protocol over shelling ad-hoc CLI commands.
+- Use `codex exec` only as explicit fallback paths.
 
-## Session/Permission Conventions
-- Default behavior uses host trust; no attempt to mirror enterprise policy.
-- Orchestrator output must be normalized before execution: intent + chosen profile + safe command template.
-- Every run gets:
-  - `sessionId`
-  - `profile` (`basic`, `edit`, `git`, `release`)
-  - `orchestrator` (`provider`, `model`, `confidence`, `requiresConfirmation`, `traceId` when available)
-  - `workingDirectory`
-  - `state` lifecycle value
-- Host-level destructive confirmation:
-  - codex flags and risky workflow families must be visible before launch when running `release` profile.
-- Confidence gating policy:
-  - `basic` and `edit`: auto-run requires confidence >= 0.88.
-  - `git`: auto-run requires confidence >= 0.93.
-  - `release`: explicit confirmation always required before execution.
-  - Missing or invalid confidence from the orchestrator is treated as invalid plan output and fails safely.
-- UI must always display the active profile used for the session.
-- Orchestrator provider and confidence details should be visible for non-trivial or failed planning attempts.
+2. No silent policy bypass
+- ADHD must not enable bypass flags automatically.
+- Approval/sandbox choices are explicit, logged, and user-visible.
 
-## Runtime Organization
-- Runtime split:
-  - Desktop-native orchestration and Tauri command handling in Rust.
-  - Frontend in lightweight TS/JS for status and controls.
-  - Reused dictation/runtime behavior from existing platform where available.
-- Define stable internal contracts for:
-  - session create
-  - session status updates
-  - output stream
-  - session stop/retry/cancel
+3. Stable method boundaries
+- Protocol integration must be wrapped in typed adapter functions.
+- Required baseline methods for ADHD runtime:
+  - `initialize`
+  - `thread/start`
+  - `turn/start`
+  - `turn/interrupt`
+  - `thread/read`
+
+4. Event-sourced state transitions
+- Every user-visible state change is backed by stored event metadata.
+- Terminal states are immutable except via explicit retry/clone actions.
+
+5. Experimental feature isolation
+- Any use of `multi_agent` must be guarded by:
+  - capability check
+  - feature flag
+  - fallback path
+- Experimental methods must never be assumed available from version string alone; runtime capability checks are required.
+
+## Data Model Rules
+Each ADHD job record must include:
+- `jobId`
+- `inputText` (+ optional transcript metadata)
+- `threadId`
+- `turnId` (current/last)
+- `delegationMode` (`multi_agent` or `fallback_workers`)
+- `state`
+- `timestamps` (`createdAt`, `updatedAt`, `startedAt`, `endedAt`)
+- `policySnapshot` (approval/sandbox/runtime limits)
+- `resultSummary` and artifact links (when terminal)
 
 ## Documentation Rules
-- Any behavior-affecting change must update:
-  - relevant `llm/project/*`
-  - relevant `llm/implementation/*` notes
-  - README if public command flows change
-- Keep docs with current behavior only.
+- Behavior-affecting changes must update relevant files in `llm/project/*` and phase docs.
+- If Codex protocol assumptions change, update:
+  - `project-overview.md`
+  - `tech-stack.md`
+  - affected phase docs
+- Keep dates when noting verified external behavior.
 
-## Work Planning Rules
-- Keep scope to one shippable increment per phase.
-- Prefer explicit implementation acceptance criteria over vague milestones.
-- If an API/contract changes, record command impact immediately before implementation.
+## Testing Rules
+Minimum required coverage for each milestone:
+- protocol adapter unit tests
+- job state transition tests
+- approval/interrupt path tests
+- restart recovery tests
 
-## Testing and Quality Rules
-- Startup checks are mandatory before major runner changes:
-  - codex presence
-  - profile schema validity
-  - output capture path permissions
-- For core paths, include:
-  - queue transition tests
-  - session cancel path
-  - profile gating behavior
-
-## Change Control Notes
-- Reuse `dictation` runtime patterns where equivalent.
-- Do not introduce new auth/security abstractions until the host-trust model is fully stabilized.
+For experimental paths:
+- explicit fallback behavior tests are required before merge.
+- parity tests across both delegation modes (`multi_agent`, `fallback_workers`) are required for critical flows.
+- compatibility tests against committed app-server schema snapshots are required before release.

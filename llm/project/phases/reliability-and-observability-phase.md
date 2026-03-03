@@ -1,31 +1,35 @@
-# ADHD Reliability and Observability Phase
+# ADHD Reliability and Observability Phase (Phase 6)
 
-## Goals
-- Make ADHD resilient to process churn, reconnects, and host/tool volatility.
-- Improve debuggability for sessions, transport, and runtime commands.
+## Objective
+Harden runtime behavior for long-running orchestration and protocol churn.
 
-## Inputs
-- `llm/project/project-overview.md`
-- `llm/project/project-rules.md`
-- `llm/project/phases/session-runtime-phase.md`
+## In Scope
+- Recovery after process/network interruptions
+- Structured event logging and error taxonomy
+- Health and readiness endpoints
 
-## Scope
-- In scope: retries, backoff, heartbeat/ping, structured logs, minimal metrics.
-- Out of scope: advanced distributed telemetry and centralized logging stacks.
+## Out of Scope
+- Distributed tracing stack
 
-## Steps (per feature)
-1. **Runner resilience**
-  - Add retry strategy for transient runner start failures and process respawn boundaries.
-2. **State recovery**
-  - Restore in-memory session state from persisted catalog on startup.
-3. **Health signals**
-  - Add heartbeat endpoint and basic binary/tool/plan-provider health checks.
-4. **Log discipline**
-  - Standardize JSON or line-delimited logs with session IDs and profile fields.
-5. **Error taxonomy**
-  - Standardize error categories (`missing-tool`, `invalid-profile`, `runtime-crash`, `transport-loss`, `orchestrator-unavailable`, `orchestrator-invalid-plan`).
+## Work Items
+1. Bridge resilience
+- Auto-restart/reconnect app-server bridge with bounded retries.
+
+2. Recovery and reconciliation
+- Recover in-flight jobs and reconcile stale sessions.
+
+3. Observability model
+- Structured logs keyed by job/thread/turn IDs.
+- Metrics for queue depth, job durations, failures, approvals.
+
+4. Error taxonomy
+- Standardize error categories and user remediation messages.
+
+5. Churn detection
+- Add automated checks that compare current protocol schema/methods against the committed compatibility baseline.
+- Emit a high-signal warning when experimental surfaces drift.
 
 ## Exit Criteria
-- Host/tool outages produce clear recoverable states, not silent failures.
-- Restarting the app restores active session list context safely.
-- Logs include enough session context to reproduce last known state quickly.
+- Restart and reconnect scenarios do not silently lose job truth.
+- Operators can diagnose failures from logs/metrics without ad-hoc probing.
+- Experimental protocol drift is detected before release by automation.

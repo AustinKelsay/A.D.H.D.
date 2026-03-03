@@ -1,29 +1,24 @@
-# ADHD Phases
+# ADHD Phases (V2 Rebuild)
 
 ## Purpose
-Track short, shippable milestones from setup to hardening and release-readiness.
+Track the rebuild sequence around Codex app-server + MCP-native orchestration.
 
-## How to use
-- Keep `setup-phase.md` complete and stable before opening `session-runtime-phase.md` and `intent-router-phase.md`.
-- Start `mvp-phase.md` work only after runtime contracts are stable.
-- Keep each phase to 3–5 actionable steps per feature.
-- Each phase must produce a working baseline at the end of completion.
+## Phase Order
+1. `setup-phase.md`
+2. `session-runtime-phase.md`
+3. `intent-router-phase.md`
+4. `mvp-phase.md`
+5. `mobile-control-phase.md`
+6. `run-catalog-phase.md`
+7. `reliability-and-observability-phase.md`
+8. `review-and-hardening-phase.md`
+9. `release-and-distribution-phase.md`
 
-## Required and planned files
-- `setup-phase.md`
-- `session-runtime-phase.md`
-- `intent-router-phase.md`
-- `mobile-control-phase.md`
-- `run-catalog-phase.md`
-- `mvp-phase.md`
-- `reliability-and-observability-phase.md`
-- `review-and-hardening-phase.md`
-- `release-and-distribution-phase.md` (optional)
+## Execution Rules
+- Do not begin UI-heavy scope before runtime protocol adapter is stable.
+- Every phase must leave behind a runnable or testable increment.
+- Experimental Codex features must always include a fallback path in the same or next phase.
+- Acceptance criteria should be tied to explicit states, methods, and artifacts.
 
-### Current milestone
-- `setup-phase.md` is documented as complete and currently in handoff mode.
-
-## Conventions
-- Focus on behavior first, polish second.
-- Define acceptance criteria with explicit states and outputs.
-- Include cross-client support (desktop + phone) by phase 3.
+## Current Milestone
+- `setup-phase.md` is the active restart point for the V2 rebuild.

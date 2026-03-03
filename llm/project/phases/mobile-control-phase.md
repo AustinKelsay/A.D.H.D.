@@ -1,39 +1,29 @@
-# ADHD Mobile Control Phase
+# ADHD Mobile Control Phase (Phase 4)
 
-## Goals
-- Enable phone-native control and visibility over the same orchestration host.
-- Keep transport simple while preserving user trust and session safety.
+## Objective
+Make phone control first-class for monitoring and steering Codex jobs remotely.
 
-## Inputs
-- `llm/project/project-overview.md`
-- `llm/project/user-flow.md`
-- `llm/project/project-rules.md`
+## In Scope
+- Mobile-authenticated session access
+- Job list/detail with real-time updates
+- Start/approve/interrupt/retry parity with desktop
 
-## Scope
-- In scope: authenticated control endpoint, session list/detail views, start/stop/retry actions, and orchestrator-driven plan submission.
-- Out of scope: feature-complete mobile-native editor and file explorers.
+## Out of Scope
+- Native mobile app packaging in this phase
 
-## Steps (per feature)
-1. **Control surface**
-  - Expose secure local endpoint for session operations and live status polling/streaming.
-2. **Session UX**
-  - Build phone-friendly session list, active session card, and action controls.
-3. **Cross-device consistency**
-  - Ensure action semantics match desktop (`id` based, same action names, same state labels).
-4. **Pairing/auth**
-  - Add lightweight host pairing token flow for phone authorization.
-  - Define token lifecycle requirements:
-    - Tokens are valid for 24 hours by default, configurable via `ADHD_PHONE_TOKEN_TTL_MS`.
-    - The host rotates the active token on successful pairing and on each `POST /api/sessions/:id/start` request if a previous token is older than the configured rotation threshold.
-    - Tokens are revoked on explicit logout, stale heartbeat timeout, or host restart; revocation updates connected clients via session invalidation and rejects all subsequent requests with `401/403`.
-  - Test cases:
-    - Expired token requests are rejected with a clear 401/403 response and `tokenExpired` marker.
-    - New token issuance and rotation changes token value and logs revocation of the prior token.
-    - Revoked token requests fail immediately and cannot perform `start`/`stop`.
-5. **Fallback path**
-  - Support typed task input when phone speech capture is unavailable.
+## Work Items
+1. Auth and pairing
+- Implement secure pairing and token/session lifecycle.
+
+2. Mobile action parity
+- Match desktop semantics and terminology exactly.
+
+3. Resilient realtime
+- Reconnect-safe streaming with stale-state protection.
+
+4. Speech fallback
+- Support typed submission when mobile dictation is unavailable.
 
 ## Exit Criteria
-- Phone users can create, inspect, and control sessions.
-- Session state updates are coherent between phone and desktop within acceptable delay.
-- Pairing token prevents accidental unauthenticated control attempts.
+- Mobile can run and control jobs without desktop intervention.
+- State consistency between desktop and mobile is reliable under reconnects.

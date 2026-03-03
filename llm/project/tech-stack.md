@@ -1,63 +1,88 @@
-# ADHD Tech Stack
+# ADHD Tech Stack (V2 Rebuild)
 
-## Purpose
-Define concrete technology choices and trade-offs for this phase of ADHD.
+## Goal
+Define the concrete stack for a from-scratch ADHD architecture built around Codex-native orchestration.
 
-## Chosen Stack
+## Core Architecture Stack
 
-### Frontend
-- **Primary:** Vanilla TypeScript/ESM + lightweight custom UI (no framework initially).
-- **Why:** Fastest setup in existing Tauri flow, minimal runtime overhead, easier portability for desktop + mobile web.
-- **Alternative:** React + Vite.
-- **Trade-off:** Better ecosystem and component reuse vs larger setup, more coupling, slower bootstrap for this MVP.
+### 1) Orchestration Service
+- Runtime: Bun + TypeScript
+- Responsibility:
+  - Own the ADHD API and job lifecycle
+  - Manage Codex app-server process/session
+  - Translate Codex protocol events to ADHD job states
+  - Persist job, event, and artifact metadata
 
-### Desktop Shell
-- **Primary:** Tauri v2 with Rust backend (`src-tauri`), Bun for scripts/tasks.
-- **Why:** Existing `dictation` foundation already uses this reliably with macOS-native capture and event bridge.
-- **Alternative:** Electron.
-- **Trade-off:** Better binary footprint and native-permission control vs larger compatibility surface.
+Why: Fast iteration and strong TypeScript ergonomics for JSON-RPC and web APIs.
 
-### Backend Coordination
-- **Primary:** Rust command layer for session lifecycle + an OpenAI-compatible orchestrator client, with `codex` process execution.
-- **Why:** Good process control primitives and stable event emission for status updates.
-- **Alternative:** Node child process orchestration with direct codex calls and separate planner script.
-- **Trade-off:** Simpler single-language stack vs potentially fewer platform-specific integrations.
+### 2) Codex Runtime Integration
+- Primary binary: `codex`
+- Primary control interface: `codex app-server` (experimental)
+- Protocol style: JSON-RPC (v2 method family such as `thread/start`, `turn/start`, `turn/interrupt`)
+- Tool extension interface: MCP via `codex mcp` + config `mcp_servers`
 
-### Transport and State
-- **Primary:** Tauri invoke for local controls + event channels for local UI updates.
-- For phone control: local authenticated HTTP control surface with WebSocket/SSE streaming.
-- **Alternative:** Poll-only API only.
-- **Trade-off:** Real-time visibility vs easiest implementation path.
+Why: Keeps orchestration on supported Codex-native interfaces instead of rebuilding a planner/runtime layer externally.
 
-### Storage
-- **Primary:** Local JSON config under `~/.adhd/` and optional session index file.
-- **Alternative:** Embedded SQLite.
-- **Trade-off:** Less operational complexity now; SQLite is better when session analytics/persistence grows.
+### 3) Delegation Model
+- Preferred: Codex multi-agent roles (`[agents]` config + `multi_agent` feature)
+- Fallback: ADHD-managed worker threads (or bounded `codex exec` jobs)
 
-### AI/Automation Tooling
-- **Primary:** OpenAI-compatible orchestrator service for intent planning and command shaping (`ollama`, `openrouter`, `maple-ai`, or custom).
-- **Execution path:** fixed `codex` CLI on the host for all code actions.
-- **Why:** Keeps execution trust model stable while letting intent planning swap providers easily.
-- **Alternative:** direct LLM-to-shell execution.
-- **Trade-off:** More moving parts for planning, but better control and provider portability.
+Why: Multi-agent matches the target UX, fallback keeps product reliability when experimental features change.
+
+### 4) UI Surfaces
+- Desktop control UI: web-first shell, then Tauri integration
+- Mobile control UI: responsive web client against same ADHD API
+
+Why: shared UI surface first, native shell after protocol/runtime stabilizes.
+
+### 5) Speech Input
+- Primary: OS-native dictation capture (desktop)
+- Secondary: browser/mobile dictation input
+- Both normalized into a single text contract before conductor submission
+
+### 6) Data + Storage
+- Primary: SQLite for jobs, state transitions, event stream snapshots, and run catalog
+- Artifacts: local file storage for logs, summaries, and optional patches/diffs
+
+Why: deterministic recovery and queryable history from day one.
+
+## Policy Defaults
+- Sandbox default: workspace-write equivalent
+- Approval default: on-request (tightened for risky operations)
+- Runtime limits:
+  - max concurrent jobs
+  - max worker count per job
+  - per-job max runtime
+
+All policy values are configurable and visible in ADHD diagnostics.
 
 ## Required Local Tooling
-- Bun >= 1.0
-- Rust toolchain matching Tauri 2 requirements.
-- `codex` binary available on host PATH or configured override.
-- `git` and `gh` available for the host workflows where needed.
-- Planned `ADHD_ORCHESTRATOR_BASE_URL`/`ADHD_ORCHESTRATOR_MODEL` (and optional auth token) for the orchestrator provider.
+- Bun (runtime/scripts)
+- Codex CLI (minimum pinned version to be defined in setup phase)
+- Git/GitHub CLI where git workflows are enabled
+- Optional MCP server dependencies based on enabled tools
 
-## Version Strategy
-- Pin project-level dependencies in `package.json` and `src-tauri/Cargo.toml`.
-- Keep codex invocation templates versioned in repo docs and runtime config.
-- Add health checks for minimum required binaries during startup.
+## Codex Feature Expectations
+- Required:
+  - `mcp` command support
+  - `app-server` command support
+- Optional/experimental:
+  - `multi_agent`
 
-## Security Implications of Stack
-- Host trust model intentionally delegates authority to the existing machine setup.
-- Security work is mostly transport + session gating, not local tooling duplication.
+ADHD startup checks must detect and report these capabilities explicitly.
 
-## Tooling Commands (Baseline)
-- `bun run start` for local web server mode when needed.
-- `bun run tauri:dev` for desktop iteration.
-- Local health command: `bun run health` validates `codex`, `git`, `gh` availability.
+## Version and Compatibility Strategy
+- Pin ADHD runtime dependencies in project manifests.
+- Track tested Codex CLI version range in docs and diagnostics.
+- Add protocol contract tests against generated app-server schema.
+- Keep a compatibility matrix for:
+  - `app-server` method availability
+  - approval/sandbox behaviors
+  - multi-agent support
+
+## Security Notes
+- ADHD does not attempt to replace Codex's approval/sandbox systems.
+- ADHD adds orchestration-level controls:
+  - which workspaces are addressable
+  - what delegation modes are allowed
+  - what operator actions are required before high-risk execution

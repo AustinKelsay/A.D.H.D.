@@ -1,31 +1,29 @@
-# ADHD Run Catalog Phase
+# ADHD Run Catalog Phase (Phase 5)
 
-## Goals
-- Make previous runs discoverable and actionable.
-- Give users quick context on what was done, where, and with what outcome.
+## Objective
+Persist and expose job history that is useful for replay, auditing, and recovery.
 
-## Inputs
-- `llm/project/project-overview.md`
-- `llm/project/project-rules.md`
-- `llm/project/phases/mvp-phase.md`
+## In Scope
+- Persistent job index with thread/turn linkage
+- Search/filter by state/date/repo/delegation mode
+- Rerun and clone-run entry points
 
-## Scope
-- In scope: persisted session index, log indexing, search/filter, run links.
-- Out of scope: advanced analytics dashboards or BI-style metrics.
+## Out of Scope
+- BI dashboards
 
-## Steps (per feature)
-1. **Catalog schema**
-   - Persist session records with task text, profile, intent summary, provider/orchestrator metadata, timestamps, exit code, and artifacts.
-2. **Log linkage**
-   - Attach short output window + archived log location to each session.
-3. **Search and filters**
-   - Filter by state, profile, repo/path, and date range.
-4. **Replay controls**
-   - Add one-click rerun and clone-run action from completed/failure entries.
-5. **Retention policy**
-   - Define size/time retention for local logs and catalog entries.
+## Work Items
+1. Catalog schema finalization
+- Store conductor + worker references, policy snapshot, artifacts, terminal summary.
+
+2. Search and filters
+- Add operator-centric filters and quick lookup.
+
+3. Replay operations
+- Implement rerun/clone using stored normalized input and policy defaults.
+
+4. Retention policy
+- Define expiration/cleanup strategy for logs and artifact files.
 
 ## Exit Criteria
-- Users can retrieve prior runs by text/state/profile quickly.
-- Rerun/clone actions reproduce same profile context.
-- Log locations are valid and readable after app restarts.
+- Operators can quickly find and replay historical jobs.
+- Catalog survives restarts and remains internally consistent.

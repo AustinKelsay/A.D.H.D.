@@ -1,32 +1,29 @@
-# ADHD Release & Distribution Phase
+# ADHD Release and Distribution Phase (Phase 8)
 
-## Goals
-- Make deployment and onboarding repeatable for future machines.
-- Preserve local-control model while reducing setup friction.
+## Objective
+Make onboarding and upgrades repeatable across fresh machines.
 
-## Inputs
-- `llm/project/project-overview.md`
-- `llm/project/project-rules.md`
-- `llm/project/phases/reliability-and-observability-phase.md`
+## In Scope
+- Release checklist
+- Compatibility matrix and upgrade notes
+- New-machine bootstrap flow
 
-## Scope
-- In scope: release checklist, installer validation, upgrade strategy, migration notes.
-- Out of scope: enterprise deployment and hosted service mode.
+## Out of Scope
+- Hosted/enterprise rollout automation
 
-## Steps
-1. **Release checklist**
-   - Standardize checks for binaries, config migration, and profile defaults.
-2. **Build validation**
-   - Validate packaged Tauri build starts, discovers binaries, and passes smoke session test.
-3. **Upgrade notes**
-   - Define how profile/catalog schema changes migrate.
-   - Include migration/rollforward guidance when `ADHD_ORCHESTRATOR_*` configuration changes provider.
-4. **Distribution guidance**
-   - Document macOS trust/security prompts and setup steps for first run.
-5. **Rollback plan**
-   - Define recovery steps if a new version blocks existing codex profiles or session state.
+## Work Items
+1. Release checklist
+- Validate protocol compatibility, diagnostics, and key runtime flows.
+
+2. Compatibility matrix
+- Track tested Codex versions and feature availability assumptions.
+
+3. Upgrade and rollback notes
+- Define migration and rollback steps for schema/config changes.
+
+4. First-run onboarding
+- Document install/auth/config steps and expected prompts.
 
 ## Exit Criteria
-- New machine can onboard in a documented, predictable path.
-- Existing session data migration behavior is intentional and verified.
-- Release checks fail fast with clear remediation text.
+- A new machine can get to first successful job with a documented path.
+- Upgrade behavior is explicit and reversible.
