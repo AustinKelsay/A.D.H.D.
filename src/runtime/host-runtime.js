@@ -17,6 +17,60 @@ function extractRequestThreadId(message = {}) {
   return message?.params?.threadId || message?.params?.thread_id || null;
 }
 
+function extractResultSummary(payload = {}) {
+  const candidates = [
+    payload.summary,
+    payload.resultSummary,
+    payload.result?.summary,
+    payload.output?.summary,
+    payload.completion?.summary,
+    payload.text,
+    payload.outputText
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim()) {
+      return candidate.trim();
+    }
+  }
+
+  return null;
+}
+
+function extractArtifactPaths(payload = {}) {
+  const paths = new Set();
+  const add = (value) => {
+    if (typeof value === "string" && value.trim()) {
+      paths.add(value.trim());
+    }
+  };
+
+  if (Array.isArray(payload.artifactPaths)) {
+    for (const path of payload.artifactPaths) {
+      add(path);
+    }
+  }
+
+  const artifacts = [
+    ...(Array.isArray(payload.artifacts) ? payload.artifacts : []),
+    ...(Array.isArray(payload.result?.artifacts) ? payload.result.artifacts : [])
+  ];
+  for (const artifact of artifacts) {
+    if (typeof artifact === "string") {
+      add(artifact);
+      continue;
+    }
+    if (!artifact || typeof artifact !== "object") {
+      continue;
+    }
+    add(artifact.path);
+    add(artifact.artifactPath);
+    add(artifact.uri);
+  }
+
+  return [...paths];
+}
+
 export class HostRuntime extends EventEmitter {
   constructor({ adapter, hostId = "h_local", store = new SessionStore() } = {}) {
     super();
@@ -49,6 +103,7 @@ export class HostRuntime extends EventEmitter {
   createJob({
     jobId,
     inputText,
+    intake = null,
     delegationMode = "fallback_workers",
     intent = null,
     plan = null,
@@ -64,6 +119,7 @@ export class HostRuntime extends EventEmitter {
       jobId,
       hostId: this.hostId,
       inputText,
+      intake,
       delegationMode,
       intent,
       plan,
@@ -146,28 +202,49 @@ export class HostRuntime extends EventEmitter {
     return this.requireJob(jobId);
   }
 
+  async retryJob(jobId) {
+    this.requireJob(jobId);
+    return this.store.retry(jobId, { reason: "retry-requested" });
+  }
+
+  getJobResult(jobId) {
+    const job = this.requireJob(jobId);
+    return {
+      resultSummary: job.resultSummary,
+      artifactPaths: job.artifactPaths
+    };
+  }
+
+  listPendingApprovals(jobId = null) {
+    const approvals = [...this.pendingApprovals.values()].map((entry) => structuredClone(entry));
+    if (!jobId) {
+      return approvals;
+    }
+    return approvals.filter((entry) => entry.jobId === jobId);
+  }
+
   approveRequest(requestId, result = { approved: true }) {
-    const mappedJobId = this.pendingApprovals.get(requestId) || null;
+    const pending = this.pendingApprovals.get(requestId) || null;
     this.adapter.sendRequestResponse(requestId, result);
 
-    if (mappedJobId) {
+    if (pending?.jobId) {
       this.pendingApprovals.delete(requestId);
-      const job = this.requireJob(mappedJobId);
+      const job = this.requireJob(pending.jobId);
       if (job.state === JOB_STATES.AWAITING_APPROVAL) {
-        this.store.transition(mappedJobId, JOB_STATES.RUNNING, { reason: "approval-accepted" });
+        this.store.transition(pending.jobId, JOB_STATES.RUNNING, { reason: "approval-accepted" });
       }
     }
   }
 
   rejectRequest(requestId, message = "Request rejected") {
-    const mappedJobId = this.pendingApprovals.get(requestId) || null;
+    const pending = this.pendingApprovals.get(requestId) || null;
     this.adapter.sendRequestError(requestId, message);
 
-    if (mappedJobId) {
+    if (pending?.jobId) {
       this.pendingApprovals.delete(requestId);
-      const job = this.requireJob(mappedJobId);
+      const job = this.requireJob(pending.jobId);
       if (!TERMINAL_STATES.has(job.state)) {
-        this.store.transition(mappedJobId, JOB_STATES.CANCELLED, { reason: "approval-rejected" });
+        this.store.transition(pending.jobId, JOB_STATES.CANCELLED, { reason: "approval-rejected" });
       }
     }
   }
@@ -178,7 +255,13 @@ export class HostRuntime extends EventEmitter {
     const job = threadId ? this.store.findByThreadId(threadId) : null;
 
     if (job && !TERMINAL_STATES.has(job.state)) {
-      this.pendingApprovals.set(requestId, job.jobId);
+      this.pendingApprovals.set(requestId, {
+        requestId,
+        jobId: job.jobId,
+        method: message.method,
+        params: message.params,
+        at: new Date().toISOString()
+      });
       this.store.transition(job.jobId, JOB_STATES.AWAITING_APPROVAL, {
         reason: `approval-request:${message.method}`
       });
@@ -210,6 +293,15 @@ export class HostRuntime extends EventEmitter {
       const threadId = extractThreadId(params);
       const job = turnId ? this.store.findByTurnId(turnId) : this.store.findByThreadId(threadId);
       if (job && !TERMINAL_STATES.has(job.state)) {
+        const resultSummary = extractResultSummary(params);
+        const artifactPaths = extractArtifactPaths(params);
+        if (resultSummary || artifactPaths.length > 0) {
+          this.store.setResult(job.jobId, {
+            resultSummary,
+            artifactPaths
+          });
+        }
+
         if (job.state !== JOB_STATES.SUMMARIZING) {
           this.store.transition(job.jobId, JOB_STATES.SUMMARIZING, {
             reason: "notification:turn-completed"

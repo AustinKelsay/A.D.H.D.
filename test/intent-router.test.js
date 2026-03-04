@@ -102,6 +102,29 @@ test("validateStructuredPlan fails when hostConstraints are tampered", () => {
   );
 });
 
+test("validateStructuredPlan fails when intentContractVersion is unsupported", () => {
+  const intent = normalizeIntent({
+    inputText: "Fix bug in ./src/runtime/host-runtime.js"
+  });
+
+  const plan = buildDeterministicPlan(intent, {
+    promptVersion: "conductor.v1",
+    requestedMode: "fallback_workers",
+    delegationPolicy: {},
+    hostCapabilities: { multi_agent: false }
+  });
+
+  plan.intentContractVersion = "intent.v2";
+
+  assert.throws(
+    () => validateStructuredPlan(plan, { intent }),
+    (error) =>
+      error instanceof RuntimeError
+      && error.code === "INVALID_PLAN"
+      && error.message.includes("intentContractVersion must be 'intent.v1'")
+  );
+});
+
 test("buildDeterministicPlan fails fast with INVALID_INPUT for malformed intent", () => {
   assert.throws(
     () =>

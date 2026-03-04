@@ -32,6 +32,7 @@ function main() {
   assertIncludes(job.required, "hostId", "job.required");
   assertIncludes(job.required, "state", "job.required");
   assertIncludes(job.required, "delegationMode", "job.required");
+  assertIncludes(job.properties ? Object.keys(job.properties) : [], "intake", "job.properties");
   assertIncludes(job.properties ? Object.keys(job.properties) : [], "intent", "job.properties");
   assertIncludes(job.properties ? Object.keys(job.properties) : [], "plan", "job.properties");
   assertIncludes(job.properties ? Object.keys(job.properties) : [], "delegationDecision", "job.properties");

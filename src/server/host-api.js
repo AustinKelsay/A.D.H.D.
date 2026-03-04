@@ -9,6 +9,19 @@ import {
 } from "../intent/index.js";
 
 const ALLOWED_DELEGATION_MODES = new Set(["multi_agent", "fallback_workers"]);
+const ALLOWED_JOB_STATES = new Set([
+  "draft",
+  "queued",
+  "dispatching",
+  "planning",
+  "awaiting_approval",
+  "delegating",
+  "running",
+  "summarizing",
+  "completed",
+  "failed",
+  "cancelled"
+]);
 
 function json(res, statusCode, payload) {
   res.statusCode = statusCode;
@@ -42,6 +55,9 @@ function statusForErrorCode(code) {
   if (code === "JOB_NOT_FOUND") {
     return 404;
   }
+  if (code === "JOB_NOT_TERMINAL" || code === "JOB_TERMINAL") {
+    return 409;
+  }
   if (code === "JOB_EXISTS") {
     return 409;
   }
@@ -72,6 +88,124 @@ async function readJsonBody(req) {
 
 function pathParts(reqUrl) {
   return reqUrl.pathname.split("/").filter(Boolean).map(decodeURIComponent);
+}
+
+function parsePositiveInt(value, {
+  name,
+  defaultValue,
+  min = 0,
+  max = Number.MAX_SAFE_INTEGER
+}) {
+  if (value === null || value === undefined || value === "") {
+    return defaultValue;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isInteger(parsed) || parsed < min || parsed > max) {
+    throw new RuntimeError("INVALID_INPUT", `${name} must be an integer in range ${min}-${max}`);
+  }
+  return parsed;
+}
+
+function parseJobsQuery(reqUrl) {
+  const limit = parsePositiveInt(reqUrl.searchParams.get("limit"), {
+    name: "limit",
+    defaultValue: 50,
+    min: 1,
+    max: 500
+  });
+  const offset = parsePositiveInt(reqUrl.searchParams.get("offset"), {
+    name: "offset",
+    defaultValue: 0,
+    min: 0,
+    max: 1000000
+  });
+
+  const stateParam = reqUrl.searchParams.get("state");
+  let states = null;
+  if (stateParam) {
+    states = stateParam
+      .split(",")
+      .map((part) => part.trim())
+      .filter(Boolean);
+    if (states.length === 0) {
+      states = null;
+    } else {
+      for (const state of states) {
+        if (!ALLOWED_JOB_STATES.has(state)) {
+          throw new RuntimeError("INVALID_INPUT", `state filter includes unsupported state: ${state}`);
+        }
+      }
+    }
+  }
+
+  const delegationModeParam = reqUrl.searchParams.get("delegationMode");
+  let delegationMode = null;
+  if (delegationModeParam) {
+    delegationMode = delegationModeParam.trim().toLowerCase();
+    if (!ALLOWED_DELEGATION_MODES.has(delegationMode)) {
+      throw new RuntimeError(
+        "INVALID_INPUT",
+        `delegationMode must be one of: ${[...ALLOWED_DELEGATION_MODES].join(", ")}`
+      );
+    }
+  }
+
+  const queryText = reqUrl.searchParams.get("q");
+  const q = typeof queryText === "string" && queryText.trim() ? queryText.trim().toLowerCase() : null;
+
+  return {
+    limit,
+    offset,
+    states,
+    delegationMode,
+    q
+  };
+}
+
+function filterAndPaginateJobs(jobs, query) {
+  const filtered = jobs.filter((job) => {
+    if (query.states && !query.states.includes(job.state)) {
+      return false;
+    }
+    if (query.delegationMode && job.delegationMode !== query.delegationMode) {
+      return false;
+    }
+    if (query.q) {
+      const haystack = [
+        job.inputText,
+        job.intent?.rawText,
+        job.intent?.normalizedText,
+        job.resultSummary
+      ]
+        .filter((part) => typeof part === "string")
+        .join(" ")
+        .toLowerCase();
+
+      if (!haystack.includes(query.q)) {
+        return false;
+      }
+    }
+    return true;
+  });
+
+  const paged = filtered.slice(query.offset, query.offset + query.limit);
+
+  return {
+    jobs: paged,
+    pagination: {
+      total: filtered.length,
+      limit: query.limit,
+      offset: query.offset,
+      returned: paged.length,
+      hasMore: query.offset + paged.length < filtered.length
+    },
+    filters: {
+      state: query.states,
+      delegationMode: query.delegationMode,
+      q: query.q
+    }
+  };
 }
 
 function readRequestedMode(payload = {}) {
@@ -113,27 +247,165 @@ function readHostCapabilities(payload = {}) {
   return payload.hostCapabilities;
 }
 
+function normalizeInputMode(mode, fallback = "text") {
+  if (typeof mode !== "string") {
+    return fallback;
+  }
+  const normalized = mode.trim().toLowerCase();
+  if (normalized === "voice" || normalized === "text") {
+    return normalized;
+  }
+  return fallback;
+}
+
+function readIntake(payload = {}, { requireText = true } = {}) {
+  const intakePayload = payload.intake ?? payload.input ?? null;
+  const normalizedIntake = intakePayload && typeof intakePayload === "object" && !Array.isArray(intakePayload)
+    ? intakePayload
+    : null;
+
+  const readSegmentText = (segment) => {
+    if (typeof segment === "string") {
+      return segment.trim();
+    }
+    if (!segment || typeof segment !== "object") {
+      return "";
+    }
+    if (typeof segment.text === "string") {
+      return segment.text.trim();
+    }
+    if (typeof segment.transcript === "string") {
+      return segment.transcript.trim();
+    }
+    if (typeof segment.content === "string") {
+      return segment.content.trim();
+    }
+    if (Array.isArray(segment.alternatives) && segment.alternatives.length > 0) {
+      const first = segment.alternatives[0];
+      if (typeof first === "string") {
+        return first.trim();
+      }
+      if (first && typeof first === "object") {
+        return (
+          (typeof first.text === "string" && first.text.trim()) ||
+          (typeof first.transcript === "string" && first.transcript.trim()) ||
+          (typeof first.content === "string" && first.content.trim()) ||
+          ""
+        );
+      }
+    }
+    return "";
+  };
+
+  const segmentTranscript = Array.isArray(normalizedIntake?.segments)
+    ? normalizedIntake.segments.map(readSegmentText).filter(Boolean).join(" ").trim()
+    : "";
+
+  const mode = normalizeInputMode(
+    normalizedIntake?.mode,
+    normalizedIntake?.transcript || normalizedIntake?.text || segmentTranscript ? "voice" : "text"
+  );
+
+  const firstNonEmptyString = (...values) => {
+    for (const value of values) {
+      if (typeof value === "string" && value.trim()) {
+        return value.trim();
+      }
+    }
+    return "";
+  };
+
+  const textCandidate = mode === "voice"
+    ? firstNonEmptyString(
+        normalizedIntake?.transcript,
+        normalizedIntake?.text,
+        segmentTranscript,
+        payload.transcript,
+        payload.inputText
+      )
+    : firstNonEmptyString(
+        normalizedIntake?.text,
+        payload.inputText,
+        normalizedIntake?.transcript,
+        segmentTranscript,
+        payload.transcript
+      );
+
+  const inputText = textCandidate;
+  if (requireText && !inputText) {
+    throw new RuntimeError("INVALID_INPUT", "inputText is required and must be a string");
+  }
+
+  if (!normalizedIntake) {
+    return {
+      inputText: inputText || null,
+      intake: inputText
+        ? {
+            mode,
+            source: mode,
+            language: null,
+            segmentCount: null
+          }
+        : null
+    };
+  }
+
+  return {
+    inputText: inputText || null,
+    intake: {
+      mode,
+      source: typeof normalizedIntake.source === "string" ? normalizedIntake.source : mode,
+      language: typeof normalizedIntake.language === "string" ? normalizedIntake.language : null,
+      segmentCount: Array.isArray(normalizedIntake.segments) ? normalizedIntake.segments.length : null
+    }
+  };
+}
+
+function mergeIntentMetadata(baseMetadata, intake) {
+  if (!intake) {
+    return baseMetadata || null;
+  }
+
+  const base = baseMetadata && typeof baseMetadata === "object" && !Array.isArray(baseMetadata)
+    ? baseMetadata
+    : {};
+  return {
+    ...base,
+    intake
+  };
+}
+
 function resolveIntent(payload = {}) {
   const intentPayload = payload.intent;
+  const hasExplicitRawIntent =
+    intentPayload && typeof intentPayload === "object" && !Array.isArray(intentPayload) &&
+    typeof intentPayload.rawText === "string" && intentPayload.rawText.trim().length > 0;
+  const intakeResult = readIntake(payload, { requireText: !hasExplicitRawIntent });
+
   if (intentPayload === undefined || intentPayload === null) {
-    return normalizeIntent({
-      inputText: payload.inputText,
+    const intent = normalizeIntent({
+      inputText: intakeResult.inputText,
       target: payload.target || ".",
       hostConstraints: payload.hostConstraints ?? null,
-      metadata: payload.metadata ?? null
+      metadata: mergeIntentMetadata(payload.metadata ?? null, intakeResult.intake)
     });
+    return { intent, intake: intakeResult.intake };
   }
 
   if (typeof intentPayload !== "object" || Array.isArray(intentPayload)) {
     throw new RuntimeError("INVALID_INPUT", "intent must be an object");
   }
 
-  return normalizeIntent({
-    inputText: intentPayload.rawText ?? payload.inputText,
+  const intent = normalizeIntent({
+    inputText: intentPayload.rawText ?? intakeResult.inputText,
     target: intentPayload.target ?? payload.target ?? ".",
     hostConstraints: intentPayload.hostConstraints ?? payload.hostConstraints ?? null,
-    metadata: intentPayload.metadata ?? payload.metadata ?? null
+    metadata: mergeIntentMetadata(
+      intentPayload.metadata ?? payload.metadata ?? null,
+      intakeResult.intake
+    )
   });
+  return { intent, intake: intakeResult.intake };
 }
 
 function isRuntimeReady(options) {
@@ -236,8 +508,14 @@ function parseCapabilityFlag(value, defaultValue = false) {
 }
 
 function mergeTrustedHostCapabilities(baseCapabilities, requestedCapabilities) {
-  if (!baseCapabilities || typeof baseCapabilities !== "object") {
-    return baseCapabilities || null;
+  if (baseCapabilities === undefined || baseCapabilities === null) {
+    return null;
+  }
+
+  const isPlainObject = !Array.isArray(baseCapabilities)
+    && Object.prototype.toString.call(baseCapabilities) === "[object Object]";
+  if (!isPlainObject) {
+    throw new RuntimeError("INVALID_CONFIG", "Host capabilities must be a plain object");
   }
 
   const baseMultiAgent = parseCapabilityFlag(
@@ -255,6 +533,13 @@ function mergeTrustedHostCapabilities(baseCapabilities, requestedCapabilities) {
     multi_agent: effectiveMultiAgent,
     multiAgent: effectiveMultiAgent
   };
+}
+
+function pendingApprovals(runtime, jobId) {
+  if (typeof runtime.listPendingApprovals !== "function") {
+    return [];
+  }
+  return runtime.listPendingApprovals(jobId);
 }
 
 function enforcePlanDelegation({
@@ -281,7 +566,7 @@ function enforcePlanDelegation({
 }
 
 function resolveIntentAndPlan(body, options) {
-  const intent = resolveIntent(body);
+  const { intent, intake } = resolveIntent(body);
   const promptPackage = getConductorPromptPackage();
   const requestedMode = readRequestedMode(body);
   const delegationPolicy = mergeDelegationPolicy(
@@ -309,6 +594,7 @@ function resolveIntentAndPlan(body, options) {
 
   return {
     intent,
+    intake,
     plan,
     promptPackage
   };
@@ -354,16 +640,17 @@ export function createHostApiHandler({
 
       if (req.method === "POST" && parts.length === 3 && parts[0] === "api" && parts[1] === "intent" && parts[2] === "normalize") {
         const body = await readJsonBody(req);
-        const intent = resolveIntent(body);
-        return json(res, 200, { ok: true, intent });
+        const { intent, intake } = resolveIntent(body);
+        return json(res, 200, { ok: true, intake, intent });
       }
 
       if (req.method === "POST" && parts.length === 3 && parts[0] === "api" && parts[1] === "intent" && parts[2] === "plan") {
         const body = await readJsonBody(req);
-        const { intent, plan, promptPackage } = resolveIntentAndPlan(body, options);
+        const { intake, intent, plan, promptPackage } = resolveIntentAndPlan(body, options);
 
         return json(res, 200, {
           ok: true,
+          intake,
           intent,
           plan,
           prompt: {
@@ -375,11 +662,12 @@ export function createHostApiHandler({
 
       if (req.method === "POST" && parts.length === 2 && parts[0] === "api" && parts[1] === "jobs") {
         const body = await readJsonBody(req);
-        const { intent, plan, promptPackage } = resolveIntentAndPlan(body, options);
+        const { intake, intent, plan, promptPackage } = resolveIntentAndPlan(body, options);
 
         const job = runtime.createJob({
           jobId: body.jobId || createJobId(),
           inputText: intent.rawText,
+          intake,
           delegationMode: plan.delegation.selectedMode,
           policySnapshot: body.policySnapshot,
           intent,
@@ -397,10 +685,56 @@ export function createHostApiHandler({
         });
       }
 
+      if (req.method === "POST" && parts.length === 2 && parts[0] === "api" && parts[1] === "intake") {
+        const body = await readJsonBody(req);
+        const { intake, intent, plan, promptPackage } = resolveIntentAndPlan(body, options);
+
+        if (body.autoStart === true && !isRuntimeReady(options)) {
+          return json(res, 503, {
+            ok: false,
+            error: {
+              code: "RUNTIME_NOT_READY",
+              message: "Host runtime is not ready for start operations"
+            },
+            runtime: runtimeStatus(options)
+          });
+        }
+
+        let job = runtime.createJob({
+          jobId: body.jobId || createJobId(),
+          inputText: intent.rawText,
+          intake,
+          delegationMode: plan.delegation.selectedMode,
+          policySnapshot: body.policySnapshot,
+          intent,
+          plan,
+          delegationDecision: plan.delegation
+        });
+
+        if (body.autoStart === true) {
+          job = await runtime.startJob(job.jobId, body.startParams || {});
+        }
+
+        return json(res, 201, {
+          ok: true,
+          intake,
+          autoStarted: body.autoStart === true,
+          job,
+          prompt: {
+            version: promptPackage.version,
+            path: promptPackage.promptPath
+          }
+        });
+      }
+
       if (req.method === "GET" && parts.length === 2 && parts[0] === "api" && parts[1] === "jobs") {
+        const query = parseJobsQuery(reqUrl);
+        const result = filterAndPaginateJobs(runtime.listJobs(), query);
         return json(res, 200, {
           ok: true,
-          jobs: runtime.listJobs()
+          jobs: result.jobs,
+          pagination: result.pagination,
+          filters: result.filters
         });
       }
 
@@ -419,6 +753,56 @@ export function createHostApiHandler({
         return json(res, 200, { ok: true, job });
       }
 
+      if (req.method === "GET" && parts.length === 4 && parts[0] === "api" && parts[1] === "jobs" && parts[3] === "live") {
+        const job = runtime.getJob(parts[2]);
+        if (!job) {
+          return json(res, 404, {
+            ok: false,
+            error: {
+              code: "JOB_NOT_FOUND",
+              message: `Job not found: ${parts[2]}`
+            }
+          });
+        }
+
+        return json(res, 200, {
+          ok: true,
+          job,
+          pendingApprovals: pendingApprovals(runtime, parts[2])
+        });
+      }
+
+      if (req.method === "GET" && parts.length === 4 && parts[0] === "api" && parts[1] === "jobs" && parts[3] === "result") {
+        const result = typeof runtime.getJobResult === "function"
+          ? runtime.getJobResult(parts[2])
+          : (() => {
+              const job = runtime.getJob(parts[2]);
+              if (!job) {
+                return null;
+              }
+              return {
+                resultSummary: job.resultSummary ?? null,
+                artifactPaths: Array.isArray(job.artifactPaths) ? job.artifactPaths : []
+              };
+            })();
+
+        if (!result) {
+          return json(res, 404, {
+            ok: false,
+            error: {
+              code: "JOB_NOT_FOUND",
+              message: `Job not found: ${parts[2]}`
+            }
+          });
+        }
+
+        return json(res, 200, {
+          ok: true,
+          jobId: parts[2],
+          result
+        });
+      }
+
       if (req.method === "POST" && parts.length === 4 && parts[0] === "api" && parts[1] === "jobs" && parts[3] === "start") {
         if (!isRuntimeReady(options)) {
           return json(res, 503, {
@@ -434,6 +818,37 @@ export function createHostApiHandler({
         const body = await readJsonBody(req);
         const job = await runtime.startJob(parts[2], body);
         return json(res, 200, { ok: true, job });
+      }
+
+      if (
+        req.method === "POST" &&
+        parts.length === 4 &&
+        parts[0] === "api" &&
+        parts[1] === "jobs" &&
+        parts[3] === "retry"
+      ) {
+        const body = await readJsonBody(req);
+        if (body.startNow === true && !isRuntimeReady(options)) {
+          return json(res, 503, {
+            ok: false,
+            error: {
+              code: "RUNTIME_NOT_READY",
+              message: "Host runtime is not ready for retry+start operations"
+            },
+            runtime: runtimeStatus(options)
+          });
+        }
+
+        let job = await runtime.retryJob(parts[2]);
+        if (body.startNow === true) {
+          job = await runtime.startJob(parts[2], body.startParams || {});
+        }
+
+        return json(res, 200, {
+          ok: true,
+          autoStarted: body.startNow === true,
+          job
+        });
       }
 
       if (
