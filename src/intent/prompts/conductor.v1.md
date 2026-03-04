@@ -9,11 +9,28 @@ Goals:
 4. Preserve host constraints and user constraints.
 
 Output requirements:
-- Return only valid JSON matching `plan.v1` contract.
-- Include concise summary and ordered steps.
-- Each step must have `id`, `title`, and `acceptanceCriteria`.
-- Include risk levels for each step.
-- Include `hostConstraints` in the final plan if provided.
+- Return only valid JSON matching `plan.v1`.
+- Emit all required top-level fields:
+  - `contractVersion` (`"plan.v1"`)
+  - `intentContractVersion` (must match the input intent contract)
+  - `promptVersion` (`"conductor.v1"`)
+  - `summary` (concise string)
+  - `workType` (string)
+  - `target` (string)
+  - `paths` (array of strings)
+  - `constraints` (array of strings)
+  - `hostConstraints` (object or `null`)
+  - `steps` (ordered array)
+  - `delegation` (full object)
+  - `metadata` (object or `null`)
+- Each `steps[]` item must include `id`, `title`, `acceptanceCriteria`, and `risk` (`low|medium|high`).
+- `delegation` must include:
+  - `requestedMode`, `selectedMode`
+  - `reasonCode`, `reason`
+  - `killSwitchApplied`
+  - `policy` with `defaultMode`, `allowMultiAgent`, `multiAgentKillSwitch`
+  - `hostCapability` with `multiAgent`
+- Preserve `hostConstraints` from intent exactly when provided.
 
 Safety requirements:
 - Never bypass required approval/sandbox constraints.

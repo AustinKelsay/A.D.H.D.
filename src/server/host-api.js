@@ -4,6 +4,7 @@ import {
   buildDeterministicPlan,
   getConductorPromptPackage,
   normalizeIntent,
+  resolveDelegationMode,
   validateStructuredPlan
 } from "../intent/index.js";
 
@@ -218,6 +219,101 @@ function mergeDelegationPolicy(basePolicy = {}, requestPolicy = {}) {
   };
 }
 
+function parseCapabilityFlag(value, defaultValue = false) {
+  if (value === undefined || value === null) {
+    return defaultValue;
+  }
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["false", "0", "off", "no"].includes(normalized)) {
+      return false;
+    }
+    if (["true", "1", "on", "yes"].includes(normalized)) {
+      return true;
+    }
+  }
+  return Boolean(value);
+}
+
+function mergeTrustedHostCapabilities(baseCapabilities, requestedCapabilities) {
+  if (!baseCapabilities || typeof baseCapabilities !== "object") {
+    return baseCapabilities || null;
+  }
+
+  const baseMultiAgent = parseCapabilityFlag(
+    baseCapabilities.multi_agent ?? baseCapabilities.multiAgent,
+    false
+  );
+  const requestedMultiAgent = parseCapabilityFlag(
+    requestedCapabilities?.multi_agent ?? requestedCapabilities?.multiAgent,
+    true
+  );
+  const effectiveMultiAgent = baseMultiAgent && requestedMultiAgent;
+
+  return {
+    ...baseCapabilities,
+    multi_agent: effectiveMultiAgent,
+    multiAgent: effectiveMultiAgent
+  };
+}
+
+function enforcePlanDelegation({
+  plan,
+  intent,
+  requestedMode,
+  delegationPolicy,
+  capabilities
+}) {
+  const enforcedDelegation = resolveDelegationMode({
+    requestedMode: plan?.delegation?.requestedMode ?? requestedMode,
+    profileHint: intent.profileHint,
+    delegationPolicy,
+    hostCapabilities: capabilities
+  });
+
+  return validateStructuredPlan(
+    {
+      ...plan,
+      delegation: enforcedDelegation
+    },
+    { intent }
+  );
+}
+
+function resolveIntentAndPlan(body, options) {
+  const intent = resolveIntent(body);
+  const promptPackage = getConductorPromptPackage();
+  const requestedMode = readRequestedMode(body);
+  const delegationPolicy = mergeDelegationPolicy(
+    defaultDelegationPolicy(options),
+    readDelegationPolicy(body)
+  );
+  const baseCapabilities = hostCapabilities(options);
+  const requestedCapabilities = readHostCapabilities(body);
+  const capabilities = mergeTrustedHostCapabilities(baseCapabilities, requestedCapabilities);
+
+  const plan = body.plan
+    ? enforcePlanDelegation({
+        plan: validateStructuredPlan(body.plan, { intent }),
+        intent,
+        requestedMode,
+        delegationPolicy,
+        capabilities
+      })
+    : buildDeterministicPlan(intent, {
+        promptVersion: promptPackage.version,
+        requestedMode,
+        delegationPolicy,
+        hostCapabilities: capabilities
+      });
+
+  return {
+    intent,
+    plan,
+    promptPackage
+  };
+}
+
 export function createJobId() {
   return `j_${randomBytes(6).toString("hex")}`;
 }
@@ -264,23 +360,7 @@ export function createHostApiHandler({
 
       if (req.method === "POST" && parts.length === 3 && parts[0] === "api" && parts[1] === "intent" && parts[2] === "plan") {
         const body = await readJsonBody(req);
-        const intent = resolveIntent(body);
-        const promptPackage = getConductorPromptPackage();
-        const requestedMode = readRequestedMode(body);
-        const delegationPolicy = mergeDelegationPolicy(
-          defaultDelegationPolicy(options),
-          readDelegationPolicy(body)
-        );
-        const capabilities = readHostCapabilities(body) || hostCapabilities(options);
-
-        const plan = body.plan
-          ? validateStructuredPlan(body.plan, { intent })
-          : buildDeterministicPlan(intent, {
-              promptVersion: promptPackage.version,
-              requestedMode,
-              delegationPolicy,
-              hostCapabilities: capabilities
-            });
+        const { intent, plan, promptPackage } = resolveIntentAndPlan(body, options);
 
         return json(res, 200, {
           ok: true,
@@ -295,23 +375,7 @@ export function createHostApiHandler({
 
       if (req.method === "POST" && parts.length === 2 && parts[0] === "api" && parts[1] === "jobs") {
         const body = await readJsonBody(req);
-        const intent = resolveIntent(body);
-        const promptPackage = getConductorPromptPackage();
-        const requestedMode = readRequestedMode(body);
-        const delegationPolicy = mergeDelegationPolicy(
-          defaultDelegationPolicy(options),
-          readDelegationPolicy(body)
-        );
-        const capabilities = readHostCapabilities(body) || hostCapabilities(options);
-
-        const plan = body.plan
-          ? validateStructuredPlan(body.plan, { intent })
-          : buildDeterministicPlan(intent, {
-              promptVersion: promptPackage.version,
-              requestedMode,
-              delegationPolicy,
-              hostCapabilities: capabilities
-            });
+        const { intent, plan, promptPackage } = resolveIntentAndPlan(body, options);
 
         const job = runtime.createJob({
           jobId: body.jobId || createJobId(),

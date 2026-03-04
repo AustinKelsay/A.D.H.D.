@@ -62,14 +62,35 @@ test("finds jobs by thread and turn ids", () => {
 
 test("stores optional intent/plan metadata on create", () => {
   const store = new SessionStore();
+  const intent = { contractVersion: "intent.v1", rawText: "Fix bug", tags: ["alpha"] };
+  const plan = { contractVersion: "plan.v1", steps: [{ id: "s1" }] };
+  const delegationDecision = { selectedMode: "fallback_workers" };
+  const policySnapshot = {
+    approvalPolicy: "on-request",
+    sandboxPolicy: "workspaceWrite",
+    maxWorkers: 1,
+    timeoutMs: 1000
+  };
+
   const created = createStoreJob(store, {
     jobId: "j_test004",
-    intent: { contractVersion: "intent.v1", rawText: "Fix bug" },
-    plan: { contractVersion: "plan.v1" },
-    delegationDecision: { selectedMode: "fallback_workers" }
+    intent,
+    plan,
+    delegationDecision,
+    policySnapshot
   });
 
+  intent.tags.push("mutated");
+  plan.steps[0].id = "tampered";
+  delegationDecision.selectedMode = "multi_agent";
+  policySnapshot.maxWorkers = 99;
+
+  const reread = store.getJob("j_test004");
   assert.equal(created.intent.contractVersion, "intent.v1");
   assert.equal(created.plan.contractVersion, "plan.v1");
   assert.equal(created.delegationDecision.selectedMode, "fallback_workers");
+  assert.deepEqual(reread.intent.tags, ["alpha"]);
+  assert.equal(reread.plan.steps[0].id, "s1");
+  assert.equal(reread.delegationDecision.selectedMode, "fallback_workers");
+  assert.equal(reread.policySnapshot.maxWorkers, 1);
 });

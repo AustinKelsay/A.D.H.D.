@@ -181,6 +181,124 @@ test("intent plan route enforces delegation policy fallback", async () => {
   assert.equal(response.json.plan.delegation.reasonCode, "kill-switch");
 });
 
+test("intent plan route treats string capability false as missing multi-agent support", async () => {
+  const runtime = new FakeRuntime();
+  const handler = createHostApiHandler({ runtime, hostId: "h_test" });
+
+  const response = await invoke(handler, {
+    method: "POST",
+    url: "/api/intent/plan",
+    body: JSON.stringify({
+      inputText: "Open pull request and merge release",
+      requestedMode: "multi_agent",
+      delegationPolicy: {
+        multiAgentKillSwitch: false,
+        allowMultiAgent: true
+      },
+      hostCapabilities: {
+        multi_agent: "false"
+      }
+    })
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json.plan.contractVersion, "plan.v1");
+  assert.equal(response.json.plan.delegation.selectedMode, "fallback_workers");
+  assert.equal(response.json.plan.delegation.reasonCode, "capability-missing");
+});
+
+test("intent plan route enforces host kill-switch even for client-provided plan", async () => {
+  const runtime = new FakeRuntime();
+  const handler = createHostApiHandler({
+    runtime,
+    hostId: "h_test",
+    getHostCapabilities: () => ({ multi_agent: true }),
+    getDelegationPolicy: () => ({
+      defaultMode: "multi_agent",
+      allowMultiAgent: true,
+      multiAgentKillSwitch: true
+    })
+  });
+
+  const response = await invoke(handler, {
+    method: "POST",
+    url: "/api/intent/plan",
+    body: JSON.stringify({
+      inputText: "Open pull request and merge release",
+      plan: {
+        contractVersion: "plan.v1",
+        intentContractVersion: "intent.v1",
+        promptVersion: "conductor.v1",
+        summary: "open pull request and merge release",
+        workType: "git-release",
+        target: ".",
+        paths: [],
+        constraints: [],
+        hostConstraints: null,
+        steps: [
+          {
+            id: "s1",
+            title: "Do release work",
+            acceptanceCriteria: "Release tasks are complete.",
+            risk: "medium"
+          }
+        ],
+        delegation: {
+          requestedMode: "multi_agent",
+          selectedMode: "multi_agent",
+          reasonCode: "accepted",
+          reason: "provided by client",
+          killSwitchApplied: false,
+          policy: {
+            defaultMode: "multi_agent",
+            allowMultiAgent: true,
+            multiAgentKillSwitch: false
+          },
+          hostCapability: {
+            multiAgent: true
+          }
+        },
+        metadata: {
+          source: "test"
+        }
+      }
+    })
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json.plan.delegation.selectedMode, "fallback_workers");
+  assert.equal(response.json.plan.delegation.killSwitchApplied, true);
+});
+
+test("intent plan route does not allow client capabilities to escalate host capabilities", async () => {
+  const runtime = new FakeRuntime();
+  const handler = createHostApiHandler({
+    runtime,
+    hostId: "h_test",
+    getHostCapabilities: () => ({ multi_agent: false })
+  });
+
+  const response = await invoke(handler, {
+    method: "POST",
+    url: "/api/intent/plan",
+    body: JSON.stringify({
+      inputText: "Open pull request and merge release",
+      requestedMode: "multi_agent",
+      delegationPolicy: {
+        allowMultiAgent: true,
+        multiAgentKillSwitch: false
+      },
+      hostCapabilities: {
+        multi_agent: true
+      }
+    })
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json.plan.delegation.selectedMode, "fallback_workers");
+  assert.equal(response.json.plan.delegation.reasonCode, "capability-missing");
+});
+
 test("intent plan route returns 422 for invalid plan payload", async () => {
   const runtime = new FakeRuntime();
   const handler = createHostApiHandler({ runtime, hostId: "h_test" });

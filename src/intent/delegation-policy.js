@@ -45,7 +45,7 @@ function hostSupportsMultiAgent(hostCapabilities = null) {
     return false;
   }
 
-  return Boolean(hostCapabilities.multi_agent || hostCapabilities.multiAgent);
+  return toBoolean(hostCapabilities.multi_agent, false) || toBoolean(hostCapabilities.multiAgent, false);
 }
 
 export function resolveDelegationMode({

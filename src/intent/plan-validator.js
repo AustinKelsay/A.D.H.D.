@@ -1,4 +1,5 @@
 import { RuntimeError } from "../runtime/errors.js";
+import { isDeepStrictEqual } from "node:util";
 import { DELEGATION_MODES } from "./delegation-policy.js";
 
 const RISK_LEVELS = new Set(["low", "medium", "high"]);
@@ -77,6 +78,9 @@ export function validatePlan(plan, { intent = null } = {}) {
   if (!Array.isArray(plan.constraints)) {
     fail("constraints must be an array");
   }
+  if (!Array.isArray(plan.paths)) {
+    fail("paths must be an array");
+  }
 
   assertSteps(plan.steps);
   assertDelegation(plan.delegation);
@@ -97,7 +101,9 @@ export function validatePlan(plan, { intent = null } = {}) {
       });
     }
 
-    if (intent.hostConstraints && !plan.hostConstraints) {
+    const expectedHostConstraints = intent.hostConstraints ?? null;
+    const receivedHostConstraints = plan.hostConstraints ?? null;
+    if (!isDeepStrictEqual(receivedHostConstraints, expectedHostConstraints)) {
       fail("hostConstraints must be preserved from intent");
     }
   }

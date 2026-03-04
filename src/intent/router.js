@@ -1,7 +1,35 @@
 import { createHash } from "node:crypto";
 
+import { RuntimeError } from "../runtime/errors.js";
 import { resolveDelegationMode } from "./delegation-policy.js";
 import { validatePlan } from "./plan-validator.js";
+
+function validatePlanningIntent(intent) {
+  if (!intent || typeof intent !== "object" || Array.isArray(intent)) {
+    throw new RuntimeError("INVALID_INPUT", "intent must be an object");
+  }
+
+  const requiredStringFields = ["rawText", "normalizedText", "contractVersion", "workType", "target", "profileHint"];
+  for (const field of requiredStringFields) {
+    if (typeof intent[field] !== "string" || !intent[field].trim()) {
+      throw new RuntimeError("INVALID_INPUT", `intent.${field} must be a non-empty string`, {
+        field
+      });
+    }
+  }
+
+  if (!Array.isArray(intent.constraints)) {
+    throw new RuntimeError("INVALID_INPUT", "intent.constraints must be an array", {
+      field: "constraints"
+    });
+  }
+
+  if (!Array.isArray(intent.paths)) {
+    throw new RuntimeError("INVALID_INPUT", "intent.paths must be an array", {
+      field: "paths"
+    });
+  }
+}
 
 function stableFingerprint(intent) {
   const source = JSON.stringify({
@@ -21,6 +49,8 @@ function hasAmbiguity(intent) {
 }
 
 function buildSteps(intent) {
+  validatePlanningIntent(intent);
+
   const steps = [];
 
   if (hasAmbiguity(intent)) {
@@ -74,6 +104,8 @@ export function buildDeterministicPlan(intent, {
   delegationPolicy = {},
   hostCapabilities = null
 } = {}) {
+  validatePlanningIntent(intent);
+
   const delegation = resolveDelegationMode({
     requestedMode,
     profileHint: intent.profileHint,

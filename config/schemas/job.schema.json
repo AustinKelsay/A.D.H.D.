@@ -56,13 +56,92 @@
       "enum": ["multi_agent", "fallback_workers"]
     },
     "intent": {
-      "type": ["object", "null"]
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "./intent.schema.json"
+        }
+      ]
     },
     "plan": {
-      "type": ["object", "null"]
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "./plan.schema.json"
+        }
+      ]
     },
     "delegationDecision": {
-      "type": ["object", "null"]
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "requestedMode",
+            "selectedMode",
+            "reasonCode",
+            "reason",
+            "killSwitchApplied",
+            "policy",
+            "hostCapability"
+          ],
+          "properties": {
+            "requestedMode": {
+              "type": "string",
+              "enum": ["multi_agent", "fallback_workers"]
+            },
+            "selectedMode": {
+              "type": "string",
+              "enum": ["multi_agent", "fallback_workers"]
+            },
+            "reasonCode": {
+              "type": "string",
+              "minLength": 1
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1
+            },
+            "killSwitchApplied": {
+              "type": "boolean"
+            },
+            "policy": {
+              "type": "object",
+              "additionalProperties": true,
+              "required": ["defaultMode", "allowMultiAgent", "multiAgentKillSwitch"],
+              "properties": {
+                "defaultMode": {
+                  "type": "string",
+                  "enum": ["multi_agent", "fallback_workers"]
+                },
+                "allowMultiAgent": {
+                  "type": "boolean"
+                },
+                "multiAgentKillSwitch": {
+                  "type": "boolean"
+                }
+              }
+            },
+            "hostCapability": {
+              "type": "object",
+              "additionalProperties": true,
+              "required": ["multiAgent"],
+              "properties": {
+                "multiAgent": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        }
+      ]
     },
     "policySnapshot": {
       "type": "object",

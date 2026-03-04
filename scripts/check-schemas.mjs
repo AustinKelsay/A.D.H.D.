@@ -35,6 +35,12 @@ function main() {
   assertIncludes(job.properties ? Object.keys(job.properties) : [], "intent", "job.properties");
   assertIncludes(job.properties ? Object.keys(job.properties) : [], "plan", "job.properties");
   assertIncludes(job.properties ? Object.keys(job.properties) : [], "delegationDecision", "job.properties");
+  if (!Array.isArray(job?.properties?.intent?.anyOf)) {
+    throw new Error("job.properties.intent.anyOf must be present");
+  }
+  if (!Array.isArray(job?.properties?.plan?.anyOf)) {
+    throw new Error("job.properties.plan.anyOf must be present");
+  }
 
   assertIncludes(intent.required, "contractVersion", "intent.required");
   assertIncludes(intent.required, "rawText", "intent.required");

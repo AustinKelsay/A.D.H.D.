@@ -19,11 +19,12 @@ function extractPaths(text) {
 
 function extractConstraints(text) {
   const constraints = [];
+  const negatedSkipTests = /\b(?:do not|don't|never)\s+skip tests\b/i.test(text);
 
   if (/\b(do not|don't|without)\b/i.test(text)) {
     constraints.push("respect-negative-instructions");
   }
-  if (/\b(no tests|skip tests)\b/i.test(text)) {
+  if (!negatedSkipTests && /\b(no tests|skip tests)\b/i.test(text)) {
     constraints.push("tests-optional");
   }
   if (/\b(high priority|urgent|urgently|asap)\b/i.test(text)) {

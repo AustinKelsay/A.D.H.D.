@@ -80,3 +80,44 @@ test("validateStructuredPlan fails for invalid plan shape", () => {
     (error) => error instanceof RuntimeError && error.code === "INVALID_PLAN"
   );
 });
+
+test("validateStructuredPlan fails when hostConstraints are tampered", () => {
+  const intent = normalizeIntent({
+    inputText: "Fix bug in ./src/runtime/host-runtime.js",
+    hostConstraints: { hostId: "h_local", sandbox: "workspace-write" }
+  });
+
+  const plan = buildDeterministicPlan(intent, {
+    promptVersion: "conductor.v1",
+    requestedMode: "fallback_workers",
+    delegationPolicy: {},
+    hostCapabilities: { multi_agent: false }
+  });
+
+  plan.hostConstraints = { hostId: "h_other", sandbox: "workspace-write" };
+
+  assert.throws(
+    () => validateStructuredPlan(plan, { intent }),
+    (error) => error instanceof RuntimeError && error.code === "INVALID_PLAN"
+  );
+});
+
+test("buildDeterministicPlan fails fast with INVALID_INPUT for malformed intent", () => {
+  assert.throws(
+    () =>
+      buildDeterministicPlan(
+        {
+          contractVersion: "intent.v1",
+          rawText: "x",
+          normalizedText: "x",
+          workType: "bugfix",
+          target: ".",
+          profileHint: "fallback_workers",
+          constraints: null,
+          paths: []
+        },
+        { promptVersion: "conductor.v1" }
+      ),
+    (error) => error instanceof RuntimeError && error.code === "INVALID_INPUT"
+  );
+});

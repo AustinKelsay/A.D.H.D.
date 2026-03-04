@@ -24,3 +24,12 @@ test("normalizeIntent rejects missing input text", () => {
     (error) => error instanceof RuntimeError && error.code === "INVALID_INPUT"
   );
 });
+
+test("normalizeIntent does not mark tests optional for negated skip-tests phrase", () => {
+  const intent = normalizeIntent({
+    inputText: "Do not skip tests when refactoring ./src/server/host-api.js"
+  });
+
+  assert.equal(intent.constraints.includes("tests-optional"), false);
+  assert.equal(intent.constraints.includes("respect-negative-instructions"), true);
+});

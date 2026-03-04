@@ -10,6 +10,13 @@ function clone(value) {
   return structuredClone(value);
 }
 
+function cloneMetadata(value) {
+  if (value === null || value === undefined) {
+    return value;
+  }
+  return clone(value);
+}
+
 export class SessionStore extends EventEmitter {
   constructor() {
     super();
@@ -47,10 +54,10 @@ export class SessionStore extends EventEmitter {
       turnId,
       state,
       delegationMode,
-      intent,
-      plan,
-      delegationDecision,
-      policySnapshot,
+      intent: cloneMetadata(intent),
+      plan: cloneMetadata(plan),
+      delegationDecision: cloneMetadata(delegationDecision),
+      policySnapshot: clone(policySnapshot),
       stateHistory: [
         {
           from: null,
