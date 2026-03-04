@@ -50,6 +50,9 @@ export class HostRuntime extends EventEmitter {
     jobId,
     inputText,
     delegationMode = "fallback_workers",
+    intent = null,
+    plan = null,
+    delegationDecision = null,
     policySnapshot = {
       approvalPolicy: "on-request",
       sandboxPolicy: "workspaceWrite",
@@ -62,6 +65,9 @@ export class HostRuntime extends EventEmitter {
       hostId: this.hostId,
       inputText,
       delegationMode,
+      intent,
+      plan,
+      delegationDecision,
       policySnapshot,
       state: JOB_STATES.QUEUED
     });

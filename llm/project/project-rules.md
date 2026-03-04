@@ -31,6 +31,8 @@ Each job must include:
 - `threadId`
 - `turnId`
 - `delegationMode` (`multi_agent` or `fallback_workers`)
+- `intent` (`intent.v1`) and `plan` (`plan.v1`) metadata
+- `delegationDecision` (selected mode + audited reason)
 - `state`
 - `policySnapshot`
 - timestamps and terminal summary/artifact references

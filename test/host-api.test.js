@@ -12,13 +12,24 @@ class FakeRuntime {
     this.rejections = [];
   }
 
-  createJob({ jobId, inputText, delegationMode = "fallback_workers", policySnapshot = null }) {
+  createJob({
+    jobId,
+    inputText,
+    delegationMode = "fallback_workers",
+    policySnapshot = null,
+    intent = null,
+    plan = null,
+    delegationDecision = null
+  }) {
     const job = {
       jobId,
       hostId: "h_test",
       inputText,
       state: "queued",
       delegationMode,
+      intent,
+      plan,
+      delegationDecision,
       policySnapshot,
       timestamps: {
         createdAt: new Date().toISOString(),
@@ -127,6 +138,49 @@ async function invoke(handler, { method, url, body = null, headers = {} }) {
   };
 }
 
+test("intent normalize route", async () => {
+  const runtime = new FakeRuntime();
+  const handler = createHostApiHandler({ runtime, hostId: "h_test" });
+
+  const response = await invoke(handler, {
+    method: "POST",
+    url: "/api/intent/normalize",
+    body: JSON.stringify({
+      inputText: "Refactor ./src/server/host-api.js and skip tests"
+    })
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json.ok, true);
+  assert.equal(response.json.intent.contractVersion, "intent.v1");
+  assert.equal(response.json.intent.workType, "refactor");
+});
+
+test("intent plan route enforces delegation policy fallback", async () => {
+  const runtime = new FakeRuntime();
+  const handler = createHostApiHandler({ runtime, hostId: "h_test" });
+
+  const response = await invoke(handler, {
+    method: "POST",
+    url: "/api/intent/plan",
+    body: JSON.stringify({
+      inputText: "Open pull request and merge release",
+      requestedMode: "multi_agent",
+      delegationPolicy: {
+        multiAgentKillSwitch: true
+      },
+      hostCapabilities: {
+        multi_agent: true
+      }
+    })
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json.plan.contractVersion, "plan.v1");
+  assert.equal(response.json.plan.delegation.selectedMode, "fallback_workers");
+  assert.equal(response.json.plan.delegation.reasonCode, "kill-switch");
+});
+
 test("create/list/get job routes", async () => {
   const runtime = new FakeRuntime();
   const handler = createHostApiHandler({ runtime, hostId: "h_test" });
@@ -143,6 +197,9 @@ test("create/list/get job routes", async () => {
   assert.equal(created.statusCode, 201);
   assert.equal(created.json.ok, true);
   assert.equal(created.json.job.jobId, "j_api001");
+  assert.equal(created.json.job.intent.contractVersion, "intent.v1");
+  assert.equal(created.json.job.plan.contractVersion, "plan.v1");
+  assert.equal(created.json.job.delegationDecision.selectedMode, "fallback_workers");
 
   const listed = await invoke(handler, {
     method: "GET",

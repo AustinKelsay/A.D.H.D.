@@ -55,6 +55,15 @@
       "type": "string",
       "enum": ["multi_agent", "fallback_workers"]
     },
+    "intent": {
+      "type": ["object", "null"]
+    },
+    "plan": {
+      "type": ["object", "null"]
+    },
+    "delegationDecision": {
+      "type": ["object", "null"]
+    },
     "policySnapshot": {
       "type": "object",
       "additionalProperties": false,

@@ -59,3 +59,17 @@ test("finds jobs by thread and turn ids", () => {
   assert.equal(store.findByThreadId("thread_1")?.jobId, "j_test003");
   assert.equal(store.findByTurnId("turn_1")?.jobId, "j_test003");
 });
+
+test("stores optional intent/plan metadata on create", () => {
+  const store = new SessionStore();
+  const created = createStoreJob(store, {
+    jobId: "j_test004",
+    intent: { contractVersion: "intent.v1", rawText: "Fix bug" },
+    plan: { contractVersion: "plan.v1" },
+    delegationDecision: { selectedMode: "fallback_workers" }
+  });
+
+  assert.equal(created.intent.contractVersion, "intent.v1");
+  assert.equal(created.plan.contractVersion, "plan.v1");
+  assert.equal(created.delegationDecision.selectedMode, "fallback_workers");
+});

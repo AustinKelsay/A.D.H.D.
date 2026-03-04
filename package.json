@@ -14,6 +14,7 @@
     "host-api:start": "node scripts/start-host-api.mjs",
     "phase0:verify": "node scripts/health-check.mjs && node scripts/check-schemas.mjs && node scripts/check-compatibility.mjs",
     "phase1:verify": "node --test && node scripts/runtime-smoke.mjs",
+    "phase2:verify": "node --test && node scripts/check-schemas.mjs && node scripts/docs-lint.mjs",
     "docs:lint": "node scripts/docs-lint.mjs"
   }
 }

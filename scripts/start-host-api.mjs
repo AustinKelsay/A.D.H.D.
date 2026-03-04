@@ -24,6 +24,9 @@ async function main() {
   const port = Number.parseInt(process.env.PORT || "8787", 10);
   const skipInitialize = envBoolean("ADHD_SKIP_INITIALIZE", false);
   const rpcOutgoingMode = process.env.ADHD_RPC_OUTGOING_MODE || "framed";
+  const hostCapabilities = {
+    multi_agent: envBoolean("ADHD_HOST_MULTI_AGENT", false)
+  };
 
   const processManager = new AppServerProcess({
     codexBin: process.env.ADHD_CODEX_BIN || "codex",
@@ -85,7 +88,8 @@ async function main() {
     runtime,
     hostId,
     isRuntimeReady: () => runtimeStatus.ready,
-    getRuntimeStatus: () => ({ ...runtimeStatus })
+    getRuntimeStatus: () => ({ ...runtimeStatus }),
+    getHostCapabilities: () => ({ ...hostCapabilities })
   });
 
   const server = http.createServer((req, res) => {
@@ -129,6 +133,7 @@ async function main() {
         hostId,
         port,
         runtime: runtimeStatus,
+        hostCapabilities,
         rpcOutgoingMode
       },
       null,

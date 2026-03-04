@@ -4,8 +4,8 @@
 Source of truth for project planning, phase execution, and implementation contracts.
 
 ## Current Milestone
-- Phase 0 (setup foundation) is active.
-- Runtime implementation begins after phase-0 diagnostics, schemas, and compatibility artifacts are in place.
+- Phase 2 (intent router) baseline is implemented.
+- Next build target is Phase 3 (MVP loop on a single host).
 
 ## Folder Intent
 - `project/` - canonical product and architecture definitions.
@@ -13,6 +13,7 @@ Source of truth for project planning, phase execution, and implementation contra
 - `project/contracts/` - explicit control-plane and host-node boundaries.
 - `workflows/` - repeatable operator/developer runbooks.
 - `../src/runtime/` - phase-1 host runtime implementation.
+- `../src/intent/` - phase-2 intent normalization, plan validation, and delegation policy.
 - `../test/` - unit tests for runtime contracts.
 
 ## Current Required Docs
@@ -41,3 +42,7 @@ Source of truth for project planning, phase execution, and implementation contra
 - `npm run runtime:smoke`
 - `npm run host-api:start`
 - `npm run phase1:verify`
+
+## Phase 2 Commands
+- `npm test`
+- `npm run phase2:verify`

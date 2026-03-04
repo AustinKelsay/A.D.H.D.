@@ -1,5 +1,13 @@
 import { randomBytes } from "node:crypto";
 import { RuntimeError } from "../runtime/errors.js";
+import {
+  buildDeterministicPlan,
+  getConductorPromptPackage,
+  normalizeIntent,
+  validateStructuredPlan
+} from "../intent/index.js";
+
+const ALLOWED_DELEGATION_MODES = new Set(["multi_agent", "fallback_workers"]);
 
 function json(res, statusCode, payload) {
   res.statusCode = statusCode;
@@ -26,6 +34,9 @@ function normalizeError(error) {
 function statusForErrorCode(code) {
   if (code === "INVALID_JSON" || code === "INVALID_INPUT") {
     return 400;
+  }
+  if (code === "INVALID_PLAN") {
+    return 422;
   }
   if (code === "JOB_NOT_FOUND") {
     return 404;
@@ -62,6 +73,68 @@ function pathParts(reqUrl) {
   return reqUrl.pathname.split("/").filter(Boolean).map(decodeURIComponent);
 }
 
+function readRequestedMode(payload = {}) {
+  const candidate = payload.delegationMode ?? payload.requestedMode ?? null;
+  if (candidate === null || candidate === undefined) {
+    return null;
+  }
+  if (typeof candidate !== "string") {
+    throw new RuntimeError("INVALID_INPUT", "delegationMode/requestedMode must be a string");
+  }
+
+  const normalized = candidate.trim().toLowerCase();
+  if (!ALLOWED_DELEGATION_MODES.has(normalized)) {
+    throw new RuntimeError(
+      "INVALID_INPUT",
+      `delegationMode/requestedMode must be one of: ${[...ALLOWED_DELEGATION_MODES].join(", ")}`
+    );
+  }
+  return normalized;
+}
+
+function readDelegationPolicy(payload = {}) {
+  if (payload.delegationPolicy === undefined || payload.delegationPolicy === null) {
+    return {};
+  }
+  if (typeof payload.delegationPolicy !== "object" || Array.isArray(payload.delegationPolicy)) {
+    throw new RuntimeError("INVALID_INPUT", "delegationPolicy must be an object");
+  }
+  return payload.delegationPolicy;
+}
+
+function readHostCapabilities(payload = {}) {
+  if (payload.hostCapabilities === undefined || payload.hostCapabilities === null) {
+    return null;
+  }
+  if (typeof payload.hostCapabilities !== "object" || Array.isArray(payload.hostCapabilities)) {
+    throw new RuntimeError("INVALID_INPUT", "hostCapabilities must be an object");
+  }
+  return payload.hostCapabilities;
+}
+
+function resolveIntent(payload = {}) {
+  const intentPayload = payload.intent;
+  if (intentPayload === undefined || intentPayload === null) {
+    return normalizeIntent({
+      inputText: payload.inputText,
+      target: payload.target || ".",
+      hostConstraints: payload.hostConstraints ?? null,
+      metadata: payload.metadata ?? null
+    });
+  }
+
+  if (typeof intentPayload !== "object" || Array.isArray(intentPayload)) {
+    throw new RuntimeError("INVALID_INPUT", "intent must be an object");
+  }
+
+  return normalizeIntent({
+    inputText: intentPayload.rawText ?? payload.inputText,
+    target: intentPayload.target ?? payload.target ?? ".",
+    hostConstraints: intentPayload.hostConstraints ?? payload.hostConstraints ?? null,
+    metadata: intentPayload.metadata ?? payload.metadata ?? null
+  });
+}
+
 function isRuntimeReady(options) {
   if (typeof options.isRuntimeReady === "function") {
     return Boolean(options.isRuntimeReady());
@@ -79,18 +152,32 @@ function runtimeStatus(options) {
   };
 }
 
+function hostCapabilities(options) {
+  if (typeof options.getHostCapabilities === "function") {
+    return options.getHostCapabilities();
+  }
+  return null;
+}
+
 export function createJobId() {
   return `j_${randomBytes(6).toString("hex")}`;
 }
 
-export function createHostApiHandler({ runtime, hostId, isRuntimeReady: checkRuntime, getRuntimeStatus } = {}) {
+export function createHostApiHandler({
+  runtime,
+  hostId,
+  isRuntimeReady: checkRuntime,
+  getRuntimeStatus,
+  getHostCapabilities
+} = {}) {
   if (!runtime) {
     throw new RuntimeError("MISSING_RUNTIME", "createHostApiHandler requires runtime");
   }
 
   const options = {
     isRuntimeReady: checkRuntime,
-    getRuntimeStatus
+    getRuntimeStatus,
+    getHostCapabilities
   };
 
   return async function handler(req, res) {
@@ -106,21 +193,75 @@ export function createHostApiHandler({ runtime, hostId, isRuntimeReady: checkRun
         });
       }
 
+      if (req.method === "POST" && parts.length === 3 && parts[0] === "api" && parts[1] === "intent" && parts[2] === "normalize") {
+        const body = await readJsonBody(req);
+        const intent = resolveIntent(body);
+        return json(res, 200, { ok: true, intent });
+      }
+
+      if (req.method === "POST" && parts.length === 3 && parts[0] === "api" && parts[1] === "intent" && parts[2] === "plan") {
+        const body = await readJsonBody(req);
+        const intent = resolveIntent(body);
+        const promptPackage = getConductorPromptPackage();
+        const requestedMode = readRequestedMode(body);
+        const delegationPolicy = readDelegationPolicy(body);
+        const capabilities = readHostCapabilities(body) || hostCapabilities(options);
+
+        const plan = body.plan
+          ? validateStructuredPlan(body.plan, { intent })
+          : buildDeterministicPlan(intent, {
+              promptVersion: promptPackage.version,
+              requestedMode,
+              delegationPolicy,
+              hostCapabilities: capabilities
+            });
+
+        return json(res, 200, {
+          ok: true,
+          intent,
+          plan,
+          prompt: {
+            version: promptPackage.version,
+            path: promptPackage.promptPath
+          }
+        });
+      }
+
       if (req.method === "POST" && parts.length === 2 && parts[0] === "api" && parts[1] === "jobs") {
         const body = await readJsonBody(req);
-        const inputText = body.inputText;
-        if (!inputText || typeof inputText !== "string") {
-          throw new RuntimeError("INVALID_INPUT", "inputText is required and must be a string");
-        }
+        const intent = resolveIntent(body);
+        const promptPackage = getConductorPromptPackage();
+        const requestedMode = readRequestedMode(body);
+        const delegationPolicy = readDelegationPolicy(body);
+        const capabilities = readHostCapabilities(body) || hostCapabilities(options);
+
+        const plan = body.plan
+          ? validateStructuredPlan(body.plan, { intent })
+          : buildDeterministicPlan(intent, {
+              promptVersion: promptPackage.version,
+              requestedMode,
+              delegationPolicy,
+              hostCapabilities: capabilities
+            });
 
         const job = runtime.createJob({
           jobId: body.jobId || createJobId(),
-          inputText,
-          delegationMode: body.delegationMode || "fallback_workers",
-          policySnapshot: body.policySnapshot
+          inputText: intent.rawText,
+          delegationMode: plan.delegation.selectedMode,
+          policySnapshot: body.policySnapshot,
+          intent,
+          plan,
+          delegationDecision: plan.delegation
         });
 
-        return json(res, 201, { ok: true, job });
+        return json(res, 201, {
+          ok: true,
+          job,
+          prompt: {
+            version: promptPackage.version,
+            path: promptPackage.promptPath
+          }
+        });
       }
 
       if (req.method === "GET" && parts.length === 2 && parts[0] === "api" && parts[1] === "jobs") {

@@ -21,6 +21,9 @@ export class SessionStore extends EventEmitter {
     hostId,
     inputText,
     delegationMode,
+    intent = null,
+    plan = null,
+    delegationDecision = null,
     policySnapshot,
     state = JOB_STATES.QUEUED,
     hostJobId = null,
@@ -44,6 +47,9 @@ export class SessionStore extends EventEmitter {
       turnId,
       state,
       delegationMode,
+      intent,
+      plan,
+      delegationDecision,
       policySnapshot,
       stateHistory: [
         {

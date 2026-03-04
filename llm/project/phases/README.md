@@ -21,4 +21,4 @@ Track implementation from single-host baseline to multi-host orchestration.
 - Experimental Codex features always require fallback behavior.
 
 ## Current Milestone
-- `setup-phase.md` is the active restart point.
+- `mvp-phase.md` is the active restart point.
