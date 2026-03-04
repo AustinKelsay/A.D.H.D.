@@ -19,6 +19,16 @@ function envBoolean(name, defaultValue = false) {
   return ["1", "true", "yes", "on"].includes(value.toLowerCase());
 }
 
+function envMode(name, defaultValue = "fallback_workers") {
+  const value = process.env[name];
+  if (!value) {
+    return defaultValue;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  return ["multi_agent", "fallback_workers"].includes(normalized) ? normalized : defaultValue;
+}
+
 async function main() {
   const hostId = process.env.ADHD_HOST_ID || "h_local";
   const port = Number.parseInt(process.env.PORT || "8787", 10);
@@ -26,6 +36,11 @@ async function main() {
   const rpcOutgoingMode = process.env.ADHD_RPC_OUTGOING_MODE || "framed";
   const hostCapabilities = {
     multi_agent: envBoolean("ADHD_HOST_MULTI_AGENT", false)
+  };
+  const defaultDelegationPolicy = {
+    defaultMode: envMode("ADHD_DELEGATION_DEFAULT_MODE", "fallback_workers"),
+    allowMultiAgent: envBoolean("ADHD_DELEGATION_ALLOW_MULTI_AGENT", true),
+    multiAgentKillSwitch: envBoolean("ADHD_MULTI_AGENT_KILL_SWITCH", false)
   };
 
   const processManager = new AppServerProcess({
@@ -89,7 +104,8 @@ async function main() {
     hostId,
     isRuntimeReady: () => runtimeStatus.ready,
     getRuntimeStatus: () => ({ ...runtimeStatus }),
-    getHostCapabilities: () => ({ ...hostCapabilities })
+    getHostCapabilities: () => ({ ...hostCapabilities }),
+    getDelegationPolicy: () => ({ ...defaultDelegationPolicy })
   });
 
   const server = http.createServer((req, res) => {
@@ -134,6 +150,7 @@ async function main() {
         port,
         runtime: runtimeStatus,
         hostCapabilities,
+        delegationPolicy: defaultDelegationPolicy,
         rpcOutgoingMode
       },
       null,

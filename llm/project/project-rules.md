@@ -22,6 +22,7 @@ Set implementation and documentation rules for federated multi-host ADHD.
 
 5. Experimental isolation
 - `multi_agent` usage requires capability check, feature flag, and fallback path.
+- host-level kill-switch/default policy cannot be bypassed by per-request payloads.
 
 ## Data Model Rules
 Each job must include:

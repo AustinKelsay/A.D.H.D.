@@ -181,6 +181,95 @@ test("intent plan route enforces delegation policy fallback", async () => {
   assert.equal(response.json.plan.delegation.reasonCode, "kill-switch");
 });
 
+test("intent plan route returns 422 for invalid plan payload", async () => {
+  const runtime = new FakeRuntime();
+  const handler = createHostApiHandler({ runtime, hostId: "h_test" });
+
+  const response = await invoke(handler, {
+    method: "POST",
+    url: "/api/intent/plan",
+    body: JSON.stringify({
+      inputText: "Refactor ./src/runtime/host-runtime.js",
+      plan: {
+        contractVersion: "plan.v1"
+      }
+    })
+  });
+
+  assert.equal(response.statusCode, 422);
+  assert.equal(response.json.error.code, "INVALID_PLAN");
+});
+
+test("intent plan route returns 400 for invalid delegationPolicy type", async () => {
+  const runtime = new FakeRuntime();
+  const handler = createHostApiHandler({ runtime, hostId: "h_test" });
+
+  const response = await invoke(handler, {
+    method: "POST",
+    url: "/api/intent/plan",
+    body: JSON.stringify({
+      inputText: "Refactor ./src/runtime/host-runtime.js",
+      delegationPolicy: "invalid"
+    })
+  });
+
+  assert.equal(response.statusCode, 400);
+  assert.equal(response.json.error.code, "INVALID_INPUT");
+});
+
+test("host default delegation kill switch cannot be bypassed per request", async () => {
+  const runtime = new FakeRuntime();
+  const handler = createHostApiHandler({
+    runtime,
+    hostId: "h_test",
+    getHostCapabilities: () => ({ multi_agent: true }),
+    getDelegationPolicy: () => ({
+      defaultMode: "multi_agent",
+      allowMultiAgent: true,
+      multiAgentKillSwitch: true
+    })
+  });
+
+  const response = await invoke(handler, {
+    method: "POST",
+    url: "/api/intent/plan",
+    body: JSON.stringify({
+      inputText: "Open pull request and merge release",
+      requestedMode: "multi_agent",
+      delegationPolicy: {
+        multiAgentKillSwitch: false
+      }
+    })
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json.plan.delegation.selectedMode, "fallback_workers");
+  assert.equal(response.json.plan.delegation.killSwitchApplied, true);
+});
+
+test("health route includes effective host delegation policy", async () => {
+  const runtime = new FakeRuntime();
+  const handler = createHostApiHandler({
+    runtime,
+    hostId: "h_test",
+    getDelegationPolicy: () => ({
+      defaultMode: "multi_agent",
+      allowMultiAgent: "false",
+      multiAgentKillSwitch: "false"
+    })
+  });
+
+  const response = await invoke(handler, {
+    method: "GET",
+    url: "/health"
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json.delegationPolicy.defaultMode, "multi_agent");
+  assert.equal(response.json.delegationPolicy.allowMultiAgent, false);
+  assert.equal(response.json.delegationPolicy.multiAgentKillSwitch, false);
+});
+
 test("create/list/get job routes", async () => {
   const runtime = new FakeRuntime();
   const handler = createHostApiHandler({ runtime, hostId: "h_test" });

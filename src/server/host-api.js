@@ -159,6 +159,65 @@ function hostCapabilities(options) {
   return null;
 }
 
+function defaultDelegationPolicy(options) {
+  if (typeof options.getDelegationPolicy !== "function") {
+    return {};
+  }
+
+  const policy = options.getDelegationPolicy();
+  if (policy === undefined || policy === null) {
+    return {};
+  }
+  if (typeof policy !== "object" || Array.isArray(policy)) {
+    throw new RuntimeError("INVALID_CONFIG", "Host default delegation policy must be an object");
+  }
+  return policy;
+}
+
+function parsePolicyFlag(value, defaultValue) {
+  if (value === undefined || value === null) {
+    return defaultValue;
+  }
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["false", "0", "off", "no"].includes(normalized)) {
+      return false;
+    }
+    if (["true", "1", "on", "yes"].includes(normalized)) {
+      return true;
+    }
+  }
+  return Boolean(value);
+}
+
+function parsePolicyMode(value, fallback = "fallback_workers") {
+  if (typeof value !== "string") {
+    return fallback;
+  }
+  const normalized = value.trim().toLowerCase();
+  return ALLOWED_DELEGATION_MODES.has(normalized) ? normalized : fallback;
+}
+
+function mergeDelegationPolicy(basePolicy = {}, requestPolicy = {}) {
+  const baseAllow = parsePolicyFlag(basePolicy.allowMultiAgent, true);
+  const baseKillSwitch = parsePolicyFlag(basePolicy.multiAgentKillSwitch, false);
+  const baseDefaultMode = parsePolicyMode(basePolicy.defaultMode, "fallback_workers");
+
+  const allowMultiAgent = baseAllow
+    ? parsePolicyFlag(requestPolicy.allowMultiAgent, baseAllow)
+    : false;
+  const multiAgentKillSwitch = baseKillSwitch
+    ? true
+    : parsePolicyFlag(requestPolicy.multiAgentKillSwitch, baseKillSwitch);
+  const defaultMode = parsePolicyMode(requestPolicy.defaultMode, baseDefaultMode);
+
+  return {
+    defaultMode,
+    allowMultiAgent,
+    multiAgentKillSwitch
+  };
+}
+
 export function createJobId() {
   return `j_${randomBytes(6).toString("hex")}`;
 }
@@ -168,7 +227,8 @@ export function createHostApiHandler({
   hostId,
   isRuntimeReady: checkRuntime,
   getRuntimeStatus,
-  getHostCapabilities
+  getHostCapabilities,
+  getDelegationPolicy
 } = {}) {
   if (!runtime) {
     throw new RuntimeError("MISSING_RUNTIME", "createHostApiHandler requires runtime");
@@ -177,7 +237,8 @@ export function createHostApiHandler({
   const options = {
     isRuntimeReady: checkRuntime,
     getRuntimeStatus,
-    getHostCapabilities
+    getHostCapabilities,
+    getDelegationPolicy
   };
 
   return async function handler(req, res) {
@@ -186,10 +247,12 @@ export function createHostApiHandler({
 
     try {
       if (req.method === "GET" && reqUrl.pathname === "/health") {
+        const hostPolicy = defaultDelegationPolicy(options);
         return json(res, 200, {
           ok: true,
           hostId,
-          runtime: runtimeStatus(options)
+          runtime: runtimeStatus(options),
+          delegationPolicy: mergeDelegationPolicy(hostPolicy, {})
         });
       }
 
@@ -204,7 +267,10 @@ export function createHostApiHandler({
         const intent = resolveIntent(body);
         const promptPackage = getConductorPromptPackage();
         const requestedMode = readRequestedMode(body);
-        const delegationPolicy = readDelegationPolicy(body);
+        const delegationPolicy = mergeDelegationPolicy(
+          defaultDelegationPolicy(options),
+          readDelegationPolicy(body)
+        );
         const capabilities = readHostCapabilities(body) || hostCapabilities(options);
 
         const plan = body.plan
@@ -232,7 +298,10 @@ export function createHostApiHandler({
         const intent = resolveIntent(body);
         const promptPackage = getConductorPromptPackage();
         const requestedMode = readRequestedMode(body);
-        const delegationPolicy = readDelegationPolicy(body);
+        const delegationPolicy = mergeDelegationPolicy(
+          defaultDelegationPolicy(options),
+          readDelegationPolicy(body)
+        );
         const capabilities = readHostCapabilities(body) || hostCapabilities(options);
 
         const plan = body.plan

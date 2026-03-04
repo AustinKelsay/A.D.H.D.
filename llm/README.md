@@ -46,3 +46,13 @@ Source of truth for project planning, phase execution, and implementation contra
 ## Phase 2 Commands
 - `npm test`
 - `npm run phase2:verify`
+
+## Phase 2 Contracts
+- `config/schemas/intent.schema.json` (`intent.v1`)
+- `config/schemas/plan.schema.json` (`plan.v1`)
+
+## Phase 2 Host Knobs
+- `ADHD_HOST_MULTI_AGENT`
+- `ADHD_DELEGATION_DEFAULT_MODE`
+- `ADHD_DELEGATION_ALLOW_MULTI_AGENT`
+- `ADHD_MULTI_AGENT_KILL_SWITCH`

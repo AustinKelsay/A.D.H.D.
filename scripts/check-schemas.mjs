@@ -21,6 +21,8 @@ function assertIncludes(haystack, needle, label) {
 function main() {
   const host = readJson("config/schemas/host.schema.json");
   const job = readJson("config/schemas/job.schema.json");
+  const intent = readJson("config/schemas/intent.schema.json");
+  const plan = readJson("config/schemas/plan.schema.json");
 
   assertIncludes(host.required, "hostId", "host.required");
   assertIncludes(host.required, "capabilities", "host.required");
@@ -30,6 +32,24 @@ function main() {
   assertIncludes(job.required, "hostId", "job.required");
   assertIncludes(job.required, "state", "job.required");
   assertIncludes(job.required, "delegationMode", "job.required");
+  assertIncludes(job.properties ? Object.keys(job.properties) : [], "intent", "job.properties");
+  assertIncludes(job.properties ? Object.keys(job.properties) : [], "plan", "job.properties");
+  assertIncludes(job.properties ? Object.keys(job.properties) : [], "delegationDecision", "job.properties");
+
+  assertIncludes(intent.required, "contractVersion", "intent.required");
+  assertIncludes(intent.required, "rawText", "intent.required");
+  assertIncludes(intent.required, "normalizedText", "intent.required");
+  assertIncludes(intent.required, "profileHint", "intent.required");
+  const profileHints = intent?.properties?.profileHint?.enum || [];
+  assertIncludes(profileHints, "multi_agent", "intent.properties.profileHint.enum");
+  assertIncludes(profileHints, "fallback_workers", "intent.properties.profileHint.enum");
+
+  assertIncludes(plan.required, "contractVersion", "plan.required");
+  assertIncludes(plan.required, "steps", "plan.required");
+  assertIncludes(plan.required, "delegation", "plan.required");
+  const planModes = plan?.properties?.delegation?.properties?.selectedMode?.enum || [];
+  assertIncludes(planModes, "multi_agent", "plan.properties.delegation.properties.selectedMode.enum");
+  assertIncludes(planModes, "fallback_workers", "plan.properties.delegation.properties.selectedMode.enum");
 
   const jobStates = job?.properties?.state?.enum || [];
   assertIncludes(jobStates, "dispatching", "job.properties.state.enum");
@@ -38,7 +58,12 @@ function main() {
   const payload = {
     ok: true,
     checkedAt: new Date().toISOString(),
-    files: ["config/schemas/host.schema.json", "config/schemas/job.schema.json"]
+    files: [
+      "config/schemas/host.schema.json",
+      "config/schemas/job.schema.json",
+      "config/schemas/intent.schema.json",
+      "config/schemas/plan.schema.json"
+    ]
   };
 
   process.stdout.write(`${JSON.stringify(payload, null, 2)}\n`);

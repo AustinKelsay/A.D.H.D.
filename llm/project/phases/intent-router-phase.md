@@ -30,6 +30,8 @@ Define conductor planning contracts and delegation behavior for host-local execu
 - `src/intent/delegation-policy.js`
 - `src/intent/plan-validator.js`
 - `src/intent/router.js`
+- `config/schemas/intent.schema.json`
+- `config/schemas/plan.schema.json`
 - `src/server/host-api.js`
 - `test/intent-normalizer.test.js`
 - `test/intent-router.test.js`
@@ -46,3 +48,18 @@ Define conductor planning contracts and delegation behavior for host-local execu
 ## Verification Commands
 - `npm test`
 - `npm run phase2:verify`
+
+## Operator Knobs
+- Host capability env:
+  - `ADHD_HOST_MULTI_AGENT=true|false`
+- Host default delegation policy env:
+  - `ADHD_DELEGATION_DEFAULT_MODE=multi_agent|fallback_workers`
+  - `ADHD_DELEGATION_ALLOW_MULTI_AGENT=true|false`
+  - `ADHD_MULTI_AGENT_KILL_SWITCH=true|false`
+- Per-request policy payload fields (`POST /api/intent/plan`, `POST /api/jobs`):
+  - `delegationPolicy.defaultMode`
+  - `delegationPolicy.allowMultiAgent`
+  - `delegationPolicy.multiAgentKillSwitch`
+- Safety behavior:
+  - Host defaults are enforced as the minimum-safe policy.
+  - A host-level `multiAgentKillSwitch=true` cannot be disabled by request payload.
