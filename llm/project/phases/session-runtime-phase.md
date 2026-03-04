@@ -19,3 +19,30 @@ Implement robust host-local Codex runtime orchestration through app-server.
 - host can run job lifecycle end-to-end through app-server
 - host-local transitions are deterministic and persisted
 - required methods are checked at runtime
+
+## Current Baseline Artifacts
+- `src/runtime/state-machine.js`
+- `src/runtime/session-store.js`
+- `src/runtime/codex/jsonrpc.js`
+- `src/runtime/codex/app-server-process.js`
+- `src/runtime/codex/protocol-adapter.js`
+- `src/runtime/host-runtime.js`
+- `src/server/host-api.js`
+- `scripts/start-host-api.mjs`
+- `test/*.test.js`
+
+## API Surface (Phase 1 Baseline)
+- `POST /api/jobs`
+- `GET /api/jobs`
+- `GET /api/jobs/:jobId`
+- `POST /api/jobs/:jobId/start`
+- `POST /api/jobs/:jobId/interrupt`
+- `POST /api/approvals/:requestId/approve`
+- `POST /api/approvals/:requestId/reject`
+- `GET /health`
+
+## Verification Commands
+- `npm test`
+- `npm run runtime:smoke`
+- `npm run host-api:start`
+- `npm run phase1:verify`

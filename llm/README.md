@@ -12,6 +12,8 @@ Source of truth for project planning, phase execution, and implementation contra
 - `project/phases/` - ordered delivery phases and acceptance criteria.
 - `project/contracts/` - explicit control-plane and host-node boundaries.
 - `workflows/` - repeatable operator/developer runbooks.
+- `../src/runtime/` - phase-1 host runtime implementation.
+- `../test/` - unit tests for runtime contracts.
 
 ## Current Required Docs
 - `project/project-overview.md`
@@ -33,3 +35,9 @@ Source of truth for project planning, phase execution, and implementation contra
 - `npm run compat:check`
 - `npm run docs:lint`
 - `npm run phase0:verify`
+
+## Phase 1 Commands
+- `npm test`
+- `npm run runtime:smoke`
+- `npm run host-api:start`
+- `npm run phase1:verify`
