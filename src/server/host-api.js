@@ -9,6 +9,19 @@ import {
 } from "../intent/index.js";
 
 const ALLOWED_DELEGATION_MODES = new Set(["multi_agent", "fallback_workers"]);
+const ALLOWED_JOB_STATES = new Set([
+  "draft",
+  "queued",
+  "dispatching",
+  "planning",
+  "awaiting_approval",
+  "delegating",
+  "running",
+  "summarizing",
+  "completed",
+  "failed",
+  "cancelled"
+]);
 
 function json(res, statusCode, payload) {
   res.statusCode = statusCode;
@@ -77,6 +90,124 @@ function pathParts(reqUrl) {
   return reqUrl.pathname.split("/").filter(Boolean).map(decodeURIComponent);
 }
 
+function parsePositiveInt(value, {
+  name,
+  defaultValue,
+  min = 0,
+  max = Number.MAX_SAFE_INTEGER
+}) {
+  if (value === null || value === undefined || value === "") {
+    return defaultValue;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isInteger(parsed) || parsed < min || parsed > max) {
+    throw new RuntimeError("INVALID_INPUT", `${name} must be an integer in range ${min}-${max}`);
+  }
+  return parsed;
+}
+
+function parseJobsQuery(reqUrl) {
+  const limit = parsePositiveInt(reqUrl.searchParams.get("limit"), {
+    name: "limit",
+    defaultValue: 50,
+    min: 1,
+    max: 500
+  });
+  const offset = parsePositiveInt(reqUrl.searchParams.get("offset"), {
+    name: "offset",
+    defaultValue: 0,
+    min: 0,
+    max: 1000000
+  });
+
+  const stateParam = reqUrl.searchParams.get("state");
+  let states = null;
+  if (stateParam) {
+    states = stateParam
+      .split(",")
+      .map((part) => part.trim())
+      .filter(Boolean);
+    if (states.length === 0) {
+      states = null;
+    } else {
+      for (const state of states) {
+        if (!ALLOWED_JOB_STATES.has(state)) {
+          throw new RuntimeError("INVALID_INPUT", `state filter includes unsupported state: ${state}`);
+        }
+      }
+    }
+  }
+
+  const delegationModeParam = reqUrl.searchParams.get("delegationMode");
+  let delegationMode = null;
+  if (delegationModeParam) {
+    delegationMode = delegationModeParam.trim().toLowerCase();
+    if (!ALLOWED_DELEGATION_MODES.has(delegationMode)) {
+      throw new RuntimeError(
+        "INVALID_INPUT",
+        `delegationMode must be one of: ${[...ALLOWED_DELEGATION_MODES].join(", ")}`
+      );
+    }
+  }
+
+  const queryText = reqUrl.searchParams.get("q");
+  const q = typeof queryText === "string" && queryText.trim() ? queryText.trim().toLowerCase() : null;
+
+  return {
+    limit,
+    offset,
+    states,
+    delegationMode,
+    q
+  };
+}
+
+function filterAndPaginateJobs(jobs, query) {
+  const filtered = jobs.filter((job) => {
+    if (query.states && !query.states.includes(job.state)) {
+      return false;
+    }
+    if (query.delegationMode && job.delegationMode !== query.delegationMode) {
+      return false;
+    }
+    if (query.q) {
+      const haystack = [
+        job.inputText,
+        job.intent?.rawText,
+        job.intent?.normalizedText,
+        job.resultSummary
+      ]
+        .filter((part) => typeof part === "string")
+        .join(" ")
+        .toLowerCase();
+
+      if (!haystack.includes(query.q)) {
+        return false;
+      }
+    }
+    return true;
+  });
+
+  const paged = filtered.slice(query.offset, query.offset + query.limit);
+
+  return {
+    jobs: paged,
+    pagination: {
+      total: filtered.length,
+      limit: query.limit,
+      offset: query.offset,
+      returned: paged.length,
+      hasMore: query.offset + paged.length < filtered.length
+    },
+    filters: {
+      state: query.states,
+      delegationMode: query.delegationMode,
+      q: query.q
+    }
+  };
+}
+
 function readRequestedMode(payload = {}) {
   const candidate = payload.delegationMode ?? payload.requestedMode ?? null;
   if (candidate === null || candidate === undefined) {
@@ -133,16 +264,74 @@ function readIntake(payload = {}, { requireText = true } = {}) {
     ? intakePayload
     : null;
 
+  const readSegmentText = (segment) => {
+    if (typeof segment === "string") {
+      return segment.trim();
+    }
+    if (!segment || typeof segment !== "object") {
+      return "";
+    }
+    if (typeof segment.text === "string") {
+      return segment.text.trim();
+    }
+    if (typeof segment.transcript === "string") {
+      return segment.transcript.trim();
+    }
+    if (typeof segment.content === "string") {
+      return segment.content.trim();
+    }
+    if (Array.isArray(segment.alternatives) && segment.alternatives.length > 0) {
+      const first = segment.alternatives[0];
+      if (typeof first === "string") {
+        return first.trim();
+      }
+      if (first && typeof first === "object") {
+        return (
+          (typeof first.text === "string" && first.text.trim()) ||
+          (typeof first.transcript === "string" && first.transcript.trim()) ||
+          (typeof first.content === "string" && first.content.trim()) ||
+          ""
+        );
+      }
+    }
+    return "";
+  };
+
+  const segmentTranscript = Array.isArray(normalizedIntake?.segments)
+    ? normalizedIntake.segments.map(readSegmentText).filter(Boolean).join(" ").trim()
+    : "";
+
   const mode = normalizeInputMode(
     normalizedIntake?.mode,
-    normalizedIntake?.transcript ? "voice" : "text"
+    normalizedIntake?.transcript || normalizedIntake?.text || segmentTranscript ? "voice" : "text"
   );
 
-  const textCandidate = mode === "voice"
-    ? normalizedIntake?.transcript ?? normalizedIntake?.text ?? payload.inputText
-    : normalizedIntake?.text ?? payload.inputText ?? normalizedIntake?.transcript;
+  const firstNonEmptyString = (...values) => {
+    for (const value of values) {
+      if (typeof value === "string" && value.trim()) {
+        return value.trim();
+      }
+    }
+    return "";
+  };
 
-  const inputText = typeof textCandidate === "string" ? textCandidate.trim() : "";
+  const textCandidate = mode === "voice"
+    ? firstNonEmptyString(
+        normalizedIntake?.transcript,
+        normalizedIntake?.text,
+        segmentTranscript,
+        payload.transcript,
+        payload.inputText
+      )
+    : firstNonEmptyString(
+        normalizedIntake?.text,
+        payload.inputText,
+        normalizedIntake?.transcript,
+        segmentTranscript,
+        payload.transcript
+      );
+
+  const inputText = textCandidate;
   if (requireText && !inputText) {
     throw new RuntimeError("INVALID_INPUT", "inputText is required and must be a string");
   }
@@ -319,8 +508,14 @@ function parseCapabilityFlag(value, defaultValue = false) {
 }
 
 function mergeTrustedHostCapabilities(baseCapabilities, requestedCapabilities) {
-  if (!baseCapabilities || typeof baseCapabilities !== "object") {
-    return baseCapabilities || null;
+  if (baseCapabilities === undefined || baseCapabilities === null) {
+    return null;
+  }
+
+  const isPlainObject = !Array.isArray(baseCapabilities)
+    && Object.prototype.toString.call(baseCapabilities) === "[object Object]";
+  if (!isPlainObject) {
+    throw new RuntimeError("INVALID_CONFIG", "Host capabilities must be a plain object");
   }
 
   const baseMultiAgent = parseCapabilityFlag(
@@ -533,9 +728,13 @@ export function createHostApiHandler({
       }
 
       if (req.method === "GET" && parts.length === 2 && parts[0] === "api" && parts[1] === "jobs") {
+        const query = parseJobsQuery(reqUrl);
+        const result = filterAndPaginateJobs(runtime.listJobs(), query);
         return json(res, 200, {
           ok: true,
-          jobs: runtime.listJobs()
+          jobs: result.jobs,
+          pagination: result.pagination,
+          filters: result.filters
         });
       }
 

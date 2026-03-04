@@ -26,8 +26,10 @@ Source of truth for project planning, phase execution, and implementation contra
 - `project/phases/setup-phase.md`
 - `project/phases/session-runtime-phase.md`
 - `project/phases/intent-router-phase.md`
+- `project/phases/mvp-phase.md`
 - `project/phases/multi-host-federation-phase.md`
 - `workflows/phase-0-bootstrap.md`
+- `workflows/phase-3-mvp-operator.md`
 
 ## Phase 0 Commands
 - `npm run health`
@@ -60,3 +62,6 @@ Source of truth for project planning, phase execution, and implementation contra
 ## Phase 3 Commands
 - `npm test`
 - `npm run phase3:verify`
+
+## Phase 3 Runbook
+- `llm/workflows/phase-3-mvp-operator.md`

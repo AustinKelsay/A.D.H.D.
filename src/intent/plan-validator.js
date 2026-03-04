@@ -4,6 +4,7 @@ import { DELEGATION_MODES } from "./delegation-policy.js";
 
 const RISK_LEVELS = new Set(["low", "medium", "high"]);
 const MODES = new Set(Object.values(DELEGATION_MODES));
+const EXPECTED_INTENT_CONTRACT_VERSION = "intent.v1";
 
 function fail(message, details = undefined) {
   throw new RuntimeError("INVALID_PLAN", message, details);
@@ -69,7 +70,12 @@ export function validatePlan(plan, { intent = null } = {}) {
     fail("contractVersion must be 'plan.v1'", { contractVersion: plan.contractVersion });
   }
 
-  assertString(plan.intentContractVersion, "intentContractVersion");
+  if (plan.intentContractVersion !== EXPECTED_INTENT_CONTRACT_VERSION) {
+    fail(`intentContractVersion must be '${EXPECTED_INTENT_CONTRACT_VERSION}'`, {
+      expected: EXPECTED_INTENT_CONTRACT_VERSION,
+      received: plan.intentContractVersion
+    });
+  }
   assertString(plan.promptVersion, "promptVersion");
   assertString(plan.summary, "summary");
   assertString(plan.workType, "workType");
