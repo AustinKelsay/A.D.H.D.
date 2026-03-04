@@ -8,6 +8,8 @@ test("allows expected transitions", () => {
   assert.equal(canTransition(JOB_STATES.DISPATCHING, JOB_STATES.PLANNING), true);
   assert.equal(canTransition(JOB_STATES.RUNNING, JOB_STATES.SUMMARIZING), true);
   assert.equal(canTransition(JOB_STATES.SUMMARIZING, JOB_STATES.COMPLETED), true);
+  assert.equal(canTransition(JOB_STATES.FAILED, JOB_STATES.QUEUED), true);
+  assert.equal(canTransition(JOB_STATES.CANCELLED, JOB_STATES.QUEUED), true);
 });
 
 test("rejects invalid transitions", () => {

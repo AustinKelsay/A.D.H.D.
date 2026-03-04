@@ -4,8 +4,8 @@
 Source of truth for project planning, phase execution, and implementation contracts.
 
 ## Current Milestone
-- Phase 2 (intent router) baseline is implemented.
-- Next build target is Phase 3 (MVP loop on a single host).
+- Phase 3 (single-host MVP loop) baseline is implemented.
+- Next build target is Phase 4 (mobile control parity).
 
 ## Folder Intent
 - `project/` - canonical product and architecture definitions.
@@ -56,3 +56,7 @@ Source of truth for project planning, phase execution, and implementation contra
 - `ADHD_DELEGATION_DEFAULT_MODE`
 - `ADHD_DELEGATION_ALLOW_MULTI_AGENT`
 - `ADHD_MULTI_AGENT_KILL_SWITCH`
+
+## Phase 3 Commands
+- `npm test`
+- `npm run phase3:verify`

@@ -42,6 +42,9 @@ function statusForErrorCode(code) {
   if (code === "JOB_NOT_FOUND") {
     return 404;
   }
+  if (code === "JOB_NOT_TERMINAL" || code === "JOB_TERMINAL") {
+    return 409;
+  }
   if (code === "JOB_EXISTS") {
     return 409;
   }
@@ -113,27 +116,107 @@ function readHostCapabilities(payload = {}) {
   return payload.hostCapabilities;
 }
 
+function normalizeInputMode(mode, fallback = "text") {
+  if (typeof mode !== "string") {
+    return fallback;
+  }
+  const normalized = mode.trim().toLowerCase();
+  if (normalized === "voice" || normalized === "text") {
+    return normalized;
+  }
+  return fallback;
+}
+
+function readIntake(payload = {}, { requireText = true } = {}) {
+  const intakePayload = payload.intake ?? payload.input ?? null;
+  const normalizedIntake = intakePayload && typeof intakePayload === "object" && !Array.isArray(intakePayload)
+    ? intakePayload
+    : null;
+
+  const mode = normalizeInputMode(
+    normalizedIntake?.mode,
+    normalizedIntake?.transcript ? "voice" : "text"
+  );
+
+  const textCandidate = mode === "voice"
+    ? normalizedIntake?.transcript ?? normalizedIntake?.text ?? payload.inputText
+    : normalizedIntake?.text ?? payload.inputText ?? normalizedIntake?.transcript;
+
+  const inputText = typeof textCandidate === "string" ? textCandidate.trim() : "";
+  if (requireText && !inputText) {
+    throw new RuntimeError("INVALID_INPUT", "inputText is required and must be a string");
+  }
+
+  if (!normalizedIntake) {
+    return {
+      inputText: inputText || null,
+      intake: inputText
+        ? {
+            mode,
+            source: mode,
+            language: null,
+            segmentCount: null
+          }
+        : null
+    };
+  }
+
+  return {
+    inputText: inputText || null,
+    intake: {
+      mode,
+      source: typeof normalizedIntake.source === "string" ? normalizedIntake.source : mode,
+      language: typeof normalizedIntake.language === "string" ? normalizedIntake.language : null,
+      segmentCount: Array.isArray(normalizedIntake.segments) ? normalizedIntake.segments.length : null
+    }
+  };
+}
+
+function mergeIntentMetadata(baseMetadata, intake) {
+  if (!intake) {
+    return baseMetadata || null;
+  }
+
+  const base = baseMetadata && typeof baseMetadata === "object" && !Array.isArray(baseMetadata)
+    ? baseMetadata
+    : {};
+  return {
+    ...base,
+    intake
+  };
+}
+
 function resolveIntent(payload = {}) {
   const intentPayload = payload.intent;
+  const hasExplicitRawIntent =
+    intentPayload && typeof intentPayload === "object" && !Array.isArray(intentPayload) &&
+    typeof intentPayload.rawText === "string" && intentPayload.rawText.trim().length > 0;
+  const intakeResult = readIntake(payload, { requireText: !hasExplicitRawIntent });
+
   if (intentPayload === undefined || intentPayload === null) {
-    return normalizeIntent({
-      inputText: payload.inputText,
+    const intent = normalizeIntent({
+      inputText: intakeResult.inputText,
       target: payload.target || ".",
       hostConstraints: payload.hostConstraints ?? null,
-      metadata: payload.metadata ?? null
+      metadata: mergeIntentMetadata(payload.metadata ?? null, intakeResult.intake)
     });
+    return { intent, intake: intakeResult.intake };
   }
 
   if (typeof intentPayload !== "object" || Array.isArray(intentPayload)) {
     throw new RuntimeError("INVALID_INPUT", "intent must be an object");
   }
 
-  return normalizeIntent({
-    inputText: intentPayload.rawText ?? payload.inputText,
+  const intent = normalizeIntent({
+    inputText: intentPayload.rawText ?? intakeResult.inputText,
     target: intentPayload.target ?? payload.target ?? ".",
     hostConstraints: intentPayload.hostConstraints ?? payload.hostConstraints ?? null,
-    metadata: intentPayload.metadata ?? payload.metadata ?? null
+    metadata: mergeIntentMetadata(
+      intentPayload.metadata ?? payload.metadata ?? null,
+      intakeResult.intake
+    )
   });
+  return { intent, intake: intakeResult.intake };
 }
 
 function isRuntimeReady(options) {
@@ -257,6 +340,13 @@ function mergeTrustedHostCapabilities(baseCapabilities, requestedCapabilities) {
   };
 }
 
+function pendingApprovals(runtime, jobId) {
+  if (typeof runtime.listPendingApprovals !== "function") {
+    return [];
+  }
+  return runtime.listPendingApprovals(jobId);
+}
+
 function enforcePlanDelegation({
   plan,
   intent,
@@ -281,7 +371,7 @@ function enforcePlanDelegation({
 }
 
 function resolveIntentAndPlan(body, options) {
-  const intent = resolveIntent(body);
+  const { intent, intake } = resolveIntent(body);
   const promptPackage = getConductorPromptPackage();
   const requestedMode = readRequestedMode(body);
   const delegationPolicy = mergeDelegationPolicy(
@@ -309,6 +399,7 @@ function resolveIntentAndPlan(body, options) {
 
   return {
     intent,
+    intake,
     plan,
     promptPackage
   };
@@ -354,16 +445,17 @@ export function createHostApiHandler({
 
       if (req.method === "POST" && parts.length === 3 && parts[0] === "api" && parts[1] === "intent" && parts[2] === "normalize") {
         const body = await readJsonBody(req);
-        const intent = resolveIntent(body);
-        return json(res, 200, { ok: true, intent });
+        const { intent, intake } = resolveIntent(body);
+        return json(res, 200, { ok: true, intake, intent });
       }
 
       if (req.method === "POST" && parts.length === 3 && parts[0] === "api" && parts[1] === "intent" && parts[2] === "plan") {
         const body = await readJsonBody(req);
-        const { intent, plan, promptPackage } = resolveIntentAndPlan(body, options);
+        const { intake, intent, plan, promptPackage } = resolveIntentAndPlan(body, options);
 
         return json(res, 200, {
           ok: true,
+          intake,
           intent,
           plan,
           prompt: {
@@ -375,11 +467,12 @@ export function createHostApiHandler({
 
       if (req.method === "POST" && parts.length === 2 && parts[0] === "api" && parts[1] === "jobs") {
         const body = await readJsonBody(req);
-        const { intent, plan, promptPackage } = resolveIntentAndPlan(body, options);
+        const { intake, intent, plan, promptPackage } = resolveIntentAndPlan(body, options);
 
         const job = runtime.createJob({
           jobId: body.jobId || createJobId(),
           inputText: intent.rawText,
+          intake,
           delegationMode: plan.delegation.selectedMode,
           policySnapshot: body.policySnapshot,
           intent,
@@ -389,6 +482,48 @@ export function createHostApiHandler({
 
         return json(res, 201, {
           ok: true,
+          job,
+          prompt: {
+            version: promptPackage.version,
+            path: promptPackage.promptPath
+          }
+        });
+      }
+
+      if (req.method === "POST" && parts.length === 2 && parts[0] === "api" && parts[1] === "intake") {
+        const body = await readJsonBody(req);
+        const { intake, intent, plan, promptPackage } = resolveIntentAndPlan(body, options);
+
+        if (body.autoStart === true && !isRuntimeReady(options)) {
+          return json(res, 503, {
+            ok: false,
+            error: {
+              code: "RUNTIME_NOT_READY",
+              message: "Host runtime is not ready for start operations"
+            },
+            runtime: runtimeStatus(options)
+          });
+        }
+
+        let job = runtime.createJob({
+          jobId: body.jobId || createJobId(),
+          inputText: intent.rawText,
+          intake,
+          delegationMode: plan.delegation.selectedMode,
+          policySnapshot: body.policySnapshot,
+          intent,
+          plan,
+          delegationDecision: plan.delegation
+        });
+
+        if (body.autoStart === true) {
+          job = await runtime.startJob(job.jobId, body.startParams || {});
+        }
+
+        return json(res, 201, {
+          ok: true,
+          intake,
+          autoStarted: body.autoStart === true,
           job,
           prompt: {
             version: promptPackage.version,
@@ -419,6 +554,56 @@ export function createHostApiHandler({
         return json(res, 200, { ok: true, job });
       }
 
+      if (req.method === "GET" && parts.length === 4 && parts[0] === "api" && parts[1] === "jobs" && parts[3] === "live") {
+        const job = runtime.getJob(parts[2]);
+        if (!job) {
+          return json(res, 404, {
+            ok: false,
+            error: {
+              code: "JOB_NOT_FOUND",
+              message: `Job not found: ${parts[2]}`
+            }
+          });
+        }
+
+        return json(res, 200, {
+          ok: true,
+          job,
+          pendingApprovals: pendingApprovals(runtime, parts[2])
+        });
+      }
+
+      if (req.method === "GET" && parts.length === 4 && parts[0] === "api" && parts[1] === "jobs" && parts[3] === "result") {
+        const result = typeof runtime.getJobResult === "function"
+          ? runtime.getJobResult(parts[2])
+          : (() => {
+              const job = runtime.getJob(parts[2]);
+              if (!job) {
+                return null;
+              }
+              return {
+                resultSummary: job.resultSummary ?? null,
+                artifactPaths: Array.isArray(job.artifactPaths) ? job.artifactPaths : []
+              };
+            })();
+
+        if (!result) {
+          return json(res, 404, {
+            ok: false,
+            error: {
+              code: "JOB_NOT_FOUND",
+              message: `Job not found: ${parts[2]}`
+            }
+          });
+        }
+
+        return json(res, 200, {
+          ok: true,
+          jobId: parts[2],
+          result
+        });
+      }
+
       if (req.method === "POST" && parts.length === 4 && parts[0] === "api" && parts[1] === "jobs" && parts[3] === "start") {
         if (!isRuntimeReady(options)) {
           return json(res, 503, {
@@ -434,6 +619,37 @@ export function createHostApiHandler({
         const body = await readJsonBody(req);
         const job = await runtime.startJob(parts[2], body);
         return json(res, 200, { ok: true, job });
+      }
+
+      if (
+        req.method === "POST" &&
+        parts.length === 4 &&
+        parts[0] === "api" &&
+        parts[1] === "jobs" &&
+        parts[3] === "retry"
+      ) {
+        const body = await readJsonBody(req);
+        if (body.startNow === true && !isRuntimeReady(options)) {
+          return json(res, 503, {
+            ok: false,
+            error: {
+              code: "RUNTIME_NOT_READY",
+              message: "Host runtime is not ready for retry+start operations"
+            },
+            runtime: runtimeStatus(options)
+          });
+        }
+
+        let job = await runtime.retryJob(parts[2]);
+        if (body.startNow === true) {
+          job = await runtime.startJob(parts[2], body.startParams || {});
+        }
+
+        return json(res, 200, {
+          ok: true,
+          autoStarted: body.startNow === true,
+          job
+        });
       }
 
       if (

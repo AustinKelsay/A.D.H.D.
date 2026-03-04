@@ -55,6 +55,28 @@
       "type": "string",
       "enum": ["multi_agent", "fallback_workers"]
     },
+    "intake": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["mode", "source", "language", "segmentCount"],
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["voice", "text"]
+        },
+        "source": {
+          "type": "string",
+          "minLength": 1
+        },
+        "language": {
+          "type": ["string", "null"]
+        },
+        "segmentCount": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        }
+      }
+    },
     "intent": {
       "anyOf": [
         {
