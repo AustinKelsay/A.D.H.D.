@@ -100,8 +100,14 @@ function parsePositiveInt(value, {
     return defaultValue;
   }
 
-  const parsed = Number.parseInt(value, 10);
-  if (!Number.isInteger(parsed) || parsed < min || parsed > max) {
+  const rawValue = String(value).trim();
+  const integerPattern = min >= 0 ? /^\d+$/ : /^-?\d+$/;
+  if (!integerPattern.test(rawValue)) {
+    throw new RuntimeError("INVALID_INPUT", `${name} must be an integer in range ${min}-${max}`);
+  }
+
+  const parsed = Number.parseInt(rawValue, 10);
+  if (!Number.isSafeInteger(parsed) || parsed < min || parsed > max) {
     throw new RuntimeError("INVALID_INPUT", `${name} must be an integer in range ${min}-${max}`);
   }
   return parsed;
@@ -301,11 +307,6 @@ function readIntake(payload = {}, { requireText = true } = {}) {
     ? normalizedIntake.segments.map(readSegmentText).filter(Boolean).join(" ").trim()
     : "";
 
-  const mode = normalizeInputMode(
-    normalizedIntake?.mode,
-    normalizedIntake?.transcript || normalizedIntake?.text || segmentTranscript ? "voice" : "text"
-  );
-
   const firstNonEmptyString = (...values) => {
     for (const value of values) {
       if (typeof value === "string" && value.trim()) {
@@ -314,6 +315,16 @@ function readIntake(payload = {}, { requireText = true } = {}) {
     }
     return "";
   };
+
+  const hasTranscriptText = Boolean(
+    firstNonEmptyString(
+      normalizedIntake?.transcript,
+      segmentTranscript
+    )
+  );
+  const mode = hasTranscriptText
+    ? normalizeInputMode(normalizedIntake?.mode, "voice")
+    : "text";
 
   const textCandidate = mode === "voice"
     ? firstNonEmptyString(
@@ -354,7 +365,7 @@ function readIntake(payload = {}, { requireText = true } = {}) {
     inputText: inputText || null,
     intake: {
       mode,
-      source: typeof normalizedIntake.source === "string" ? normalizedIntake.source : mode,
+      source: firstNonEmptyString(normalizedIntake?.source, mode, "unknown"),
       language: typeof normalizedIntake.language === "string" ? normalizedIntake.language : null,
       segmentCount: Array.isArray(normalizedIntake.segments) ? normalizedIntake.segments.length : null
     }

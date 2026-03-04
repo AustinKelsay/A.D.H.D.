@@ -122,6 +122,8 @@ test("validateStructuredPlan fails when intentContractVersion is unsupported", (
       error instanceof RuntimeError
       && error.code === "INVALID_PLAN"
       && error.message.includes("intentContractVersion must be 'intent.v1'")
+      && error.details?.expected === "intent.v1"
+      && error.details?.received === "intent.v2"
   );
 });
 

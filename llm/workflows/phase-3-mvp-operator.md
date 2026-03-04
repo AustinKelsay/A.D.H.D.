@@ -91,12 +91,16 @@ curl -sS 'http://127.0.0.1:8787/api/jobs/<jobId>/live'
 
 ### Interrupt
 ```bash
-curl -sS -X POST http://127.0.0.1:8787/api/jobs/<jobId>/interrupt -d '{}'
+curl -sS -X POST http://127.0.0.1:8787/api/jobs/<jobId>/interrupt \
+  -H 'Content-Type: application/json' \
+  -d '{}'
 ```
 
 ### Retry
 ```bash
-curl -sS -X POST http://127.0.0.1:8787/api/jobs/<jobId>/retry -d '{}'
+curl -sS -X POST http://127.0.0.1:8787/api/jobs/<jobId>/retry \
+  -H 'Content-Type: application/json' \
+  -d '{}'
 ```
 
 ### Retry + start immediately

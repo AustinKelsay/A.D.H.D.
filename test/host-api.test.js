@@ -93,6 +93,7 @@ class FakeRuntime {
       throw new RuntimeError("JOB_NOT_TERMINAL", `Job is not terminal: ${jobId}`);
     }
     job.state = JOB_STATES.QUEUED;
+    job.hostJobId = null;
     job.threadId = null;
     job.turnId = null;
     job.resultSummary = null;
@@ -269,6 +270,31 @@ test("intake route supports top-level transcript fallback", async () => {
   assert.equal(response.json.job.jobId, "j_voice_top_level");
   assert.equal(response.json.job.intake.mode, "text");
   assert.equal(response.json.job.inputText, "Please add tests for ./src/runtime/host-runtime.js");
+});
+
+test("intake route does not classify text-only payloads as voice and sanitizes source", async () => {
+  const runtime = new FakeRuntime();
+  const handler = createHostApiHandler({ runtime, hostId: "h_test" });
+
+  const response = await invoke(handler, {
+    method: "POST",
+    url: "/api/intake",
+    body: JSON.stringify({
+      jobId: "j_text_only_intake",
+      intake: {
+        mode: "voice",
+        text: "Fix tests in ./test/host-api.test.js",
+        source: "   ",
+        language: "en-US"
+      }
+    })
+  });
+
+  assert.equal(response.statusCode, 201);
+  assert.equal(response.json.job.jobId, "j_text_only_intake");
+  assert.equal(response.json.job.intake.mode, "text");
+  assert.equal(response.json.job.intake.source, "text");
+  assert.equal(response.json.job.inputText, "Fix tests in ./test/host-api.test.js");
 });
 
 test("intent plan route enforces delegation policy fallback", async () => {
@@ -602,6 +628,20 @@ test("list jobs returns 400 for invalid pagination input", async () => {
   assert.equal(response.json.error.code, "INVALID_INPUT");
 });
 
+test("list jobs returns 400 for non-integer pagination input", async () => {
+  const runtime = new FakeRuntime();
+  const handler = createHostApiHandler({ runtime, hostId: "h_test" });
+  runtime.createJob({ jobId: "j_list_non_integer", inputText: "Anything" });
+
+  const response = await invoke(handler, {
+    method: "GET",
+    url: "/api/jobs?limit=10abc"
+  });
+
+  assert.equal(response.statusCode, 400);
+  assert.equal(response.json.error.code, "INVALID_INPUT");
+});
+
 test("start and interrupt routes", async () => {
   const runtime = new FakeRuntime();
   const handler = createHostApiHandler({ runtime, hostId: "h_test" });
@@ -630,8 +670,15 @@ test("retry route moves terminal job back to queued", async () => {
   const runtime = new FakeRuntime();
   const handler = createHostApiHandler({ runtime, hostId: "h_test" });
   runtime.createJob({ jobId: "j_retry001", inputText: "Implement Y" });
-  runtime.jobs.get("j_retry001").state = JOB_STATES.CANCELLED;
-  runtime.jobs.get("j_retry001").timestamps.endedAt = new Date().toISOString();
+  const terminalJob = runtime.jobs.get("j_retry001");
+  terminalJob.state = JOB_STATES.CANCELLED;
+  terminalJob.hostJobId = "host_prev_001";
+  terminalJob.threadId = "thread_prev_001";
+  terminalJob.turnId = "turn_prev_001";
+  terminalJob.resultSummary = "old summary";
+  terminalJob.artifactPaths = ["artifacts/old-summary.md"];
+  terminalJob.timestamps.startedAt = new Date(Date.now() - 1000).toISOString();
+  terminalJob.timestamps.endedAt = new Date().toISOString();
 
   const retried = await invoke(handler, {
     method: "POST",
@@ -642,6 +689,13 @@ test("retry route moves terminal job back to queued", async () => {
   assert.equal(retried.statusCode, 200);
   assert.equal(retried.json.job.state, JOB_STATES.QUEUED);
   assert.equal(retried.json.autoStarted, false);
+  assert.equal(retried.json.job.hostJobId, null);
+  assert.equal(retried.json.job.threadId, null);
+  assert.equal(retried.json.job.turnId, null);
+  assert.equal(retried.json.job.resultSummary, null);
+  assert.deepEqual(retried.json.job.artifactPaths, []);
+  assert.equal(retried.json.job.timestamps.startedAt, null);
+  assert.equal(retried.json.job.timestamps.endedAt, null);
 });
 
 test("retry route with startNow true auto-starts retried job", async () => {

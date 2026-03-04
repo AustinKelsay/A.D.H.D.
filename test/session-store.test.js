@@ -99,6 +99,7 @@ test("retry resets terminal job references and result fields", () => {
   const store = new SessionStore();
   createStoreJob(store, { jobId: "j_test005", intake: { mode: "text", source: "text", language: null, segmentCount: null } });
   store.setProtocolRefs("j_test005", {
+    hostJobId: "host_123",
     threadId: "thread_5",
     turnId: "turn_5"
   });
@@ -114,6 +115,7 @@ test("retry resets terminal job references and result fields", () => {
   const retried = store.retry("j_test005");
 
   assert.equal(retried.state, JOB_STATES.QUEUED);
+  assert.equal(retried.hostJobId, null);
   assert.equal(retried.threadId, null);
   assert.equal(retried.turnId, null);
   assert.equal(retried.resultSummary, null);
