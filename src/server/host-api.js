@@ -7,6 +7,7 @@ import {
   resolveDelegationMode,
   validateStructuredPlan
 } from "../intent/index.js";
+import { MobileControlManager } from "./mobile-control.js";
 
 const ALLOWED_DELEGATION_MODES = new Set(["multi_agent", "fallback_workers"]);
 const ALLOWED_JOB_STATES = new Set([
@@ -553,6 +554,46 @@ function pendingApprovals(runtime, jobId) {
   return runtime.listPendingApprovals(jobId);
 }
 
+function mobileConfig(options) {
+  if (typeof options.getMobileConfig !== "function") {
+    return {};
+  }
+
+  const config = options.getMobileConfig();
+  if (config === undefined || config === null) {
+    return {};
+  }
+  if (typeof config !== "object" || Array.isArray(config)) {
+    throw new RuntimeError("INVALID_CONFIG", "Mobile config must be an object");
+  }
+  return config;
+}
+
+function parseEventCursor(reqUrl) {
+  return parsePositiveInt(reqUrl.searchParams.get("after"), {
+    name: "after",
+    defaultValue: 0,
+    min: 0,
+    max: Number.MAX_SAFE_INTEGER
+  });
+}
+
+function parseEventLimit(reqUrl) {
+  return parsePositiveInt(reqUrl.searchParams.get("limit"), {
+    name: "limit",
+    defaultValue: 100,
+    min: 1,
+    max: 500
+  });
+}
+
+function mobileAuthError() {
+  return {
+    code: "MOBILE_UNAUTHORIZED",
+    message: "Valid mobile Bearer token is required"
+  };
+}
+
 function enforcePlanDelegation({
   plan,
   intent,
@@ -621,7 +662,8 @@ export function createHostApiHandler({
   isRuntimeReady: checkRuntime,
   getRuntimeStatus,
   getHostCapabilities,
-  getDelegationPolicy
+  getDelegationPolicy,
+  getMobileConfig
 } = {}) {
   if (!runtime) {
     throw new RuntimeError("MISSING_RUNTIME", "createHostApiHandler requires runtime");
@@ -631,8 +673,60 @@ export function createHostApiHandler({
     isRuntimeReady: checkRuntime,
     getRuntimeStatus,
     getHostCapabilities,
-    getDelegationPolicy
+    getDelegationPolicy,
+    getMobileConfig
   };
+  const mobile = new MobileControlManager(mobileConfig(options));
+
+  if (typeof runtime.on === "function") {
+    runtime.on("approvalRequested", (event) => {
+      mobile.appendEvent({
+        type: "runtime.approvalRequested",
+        jobId: event?.jobId || null,
+        payload: event
+      });
+    });
+
+    runtime.on("runtimeNotification", (message) => {
+      mobile.appendEvent({
+        type: "runtime.notification",
+        payload: {
+          method: message?.method || null,
+          params: message?.params || null
+        }
+      });
+    });
+  }
+
+  if (runtime.store && typeof runtime.store.on === "function") {
+    runtime.store.on("created", (job) => {
+      mobile.appendEvent({
+        type: "job.created",
+        jobId: job?.jobId || null,
+        payload: {
+          state: job?.state || null
+        }
+      });
+    });
+
+    runtime.store.on("transition", (event) => {
+      mobile.appendEvent({
+        type: "job.transition",
+        jobId: event?.jobId || null,
+        payload: event
+      });
+    });
+
+    runtime.store.on("updated", (job) => {
+      mobile.appendEvent({
+        type: "job.updated",
+        jobId: job?.jobId || null,
+        payload: {
+          updatedAt: job?.timestamps?.updatedAt || null
+        }
+      });
+    });
+  }
 
   return async function handler(req, res) {
     const reqUrl = new URL(req.url, "http://127.0.0.1");
@@ -645,8 +739,131 @@ export function createHostApiHandler({
           ok: true,
           hostId,
           runtime: runtimeStatus(options),
-          delegationPolicy: mergeDelegationPolicy(hostPolicy, {})
+          delegationPolicy: mergeDelegationPolicy(hostPolicy, {}),
+          mobile: {
+            enabled: mobile.enabled
+          }
         });
+      }
+
+      if (parts.length >= 2 && parts[0] === "api" && parts[1] === "mobile") {
+        if (!mobile.enabled) {
+          return json(res, 404, {
+            ok: false,
+            error: {
+              code: "MOBILE_DISABLED",
+              message: "Mobile control is disabled on this host"
+            }
+          });
+        }
+
+        if (
+          req.method === "POST" &&
+          parts.length === 4 &&
+          parts[2] === "pairing" &&
+          parts[3] === "start"
+        ) {
+          const body = await readJsonBody(req);
+          const started = mobile.startPairing({
+            deviceLabel: typeof body.deviceLabel === "string" ? body.deviceLabel : null,
+            initiatedBy: "desktop"
+          });
+          return json(res, 201, {
+            ok: true,
+            pairing: started
+          });
+        }
+
+        if (
+          req.method === "POST" &&
+          parts.length === 4 &&
+          parts[2] === "pairing" &&
+          parts[3] === "complete"
+        ) {
+          const body = await readJsonBody(req);
+          const completed = mobile.completePairing(body.pairingCode, {
+            deviceLabel: typeof body.deviceLabel === "string" ? body.deviceLabel : null,
+            userAgent: req.headers["user-agent"] || null
+          });
+          if (!completed) {
+            return json(res, 401, {
+              ok: false,
+              error: {
+                code: "MOBILE_PAIRING_INVALID",
+                message: "Pairing code is invalid or expired"
+              }
+            });
+          }
+
+          return json(res, 200, {
+            ok: true,
+            token: completed.token,
+            session: completed.session
+          });
+        }
+
+        const token = mobile.readTokenFromRequest(req);
+        const session = mobile.getSession(token, { touch: true });
+        if (!session) {
+          return json(res, 401, {
+            ok: false,
+            error: mobileAuthError()
+          });
+        }
+
+        if (req.method === "GET" && parts.length === 3 && parts[2] === "session") {
+          return json(res, 200, {
+            ok: true,
+            session
+          });
+        }
+
+        if (req.method === "POST" && parts.length === 4 && parts[2] === "session" && parts[3] === "revoke") {
+          mobile.revokeSession(token);
+          return json(res, 202, {
+            ok: true,
+            revoked: true
+          });
+        }
+
+        if (req.method === "GET" && parts.length === 3 && parts[2] === "events") {
+          const after = parseEventCursor(reqUrl);
+          const limit = parseEventLimit(reqUrl);
+          const jobId = reqUrl.searchParams.get("jobId") || null;
+          const events = mobile.listEvents({
+            afterId: after,
+            limit,
+            jobId
+          });
+          return json(res, 200, {
+            ok: true,
+            ...events
+          });
+        }
+
+        if (req.method === "GET" && parts.length === 4 && parts[2] === "events" && parts[3] === "stream") {
+          const afterFromQuery = reqUrl.searchParams.get("after");
+          const afterFromHeader = req.headers["last-event-id"];
+          const after = parsePositiveInt(afterFromQuery ?? afterFromHeader, {
+            name: "after",
+            defaultValue: 0,
+            min: 0,
+            max: Number.MAX_SAFE_INTEGER
+          });
+          const jobId = reqUrl.searchParams.get("jobId") || null;
+          mobile.openEventStream({
+            req,
+            res,
+            afterId: after,
+            jobId
+          });
+          return;
+        }
+
+        // Mobile action parity: authenticated mobile routes proxy to canonical API routes.
+        const proxiedPath = `/api/${parts.slice(2).join("/")}${reqUrl.search}`;
+        req.url = proxiedPath;
+        return handler(req, res);
       }
 
       if (req.method === "POST" && parts.length === 3 && parts[0] === "api" && parts[1] === "intent" && parts[2] === "normalize") {

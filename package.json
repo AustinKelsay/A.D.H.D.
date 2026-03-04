@@ -16,6 +16,7 @@
     "phase1:verify": "node --test && node scripts/runtime-smoke.mjs",
     "phase2:verify": "node --test && node scripts/check-schemas.mjs && node scripts/docs-lint.mjs",
     "phase3:verify": "npm run phase2:verify",
+    "phase4:verify": "npm run phase3:verify && node scripts/docs-lint.mjs",
     "docs:lint": "node scripts/docs-lint.mjs"
   }
 }

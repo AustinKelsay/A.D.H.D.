@@ -29,6 +29,18 @@ function envMode(name, defaultValue = "fallback_workers") {
   return ["multi_agent", "fallback_workers"].includes(normalized) ? normalized : defaultValue;
 }
 
+function envPositiveInt(name, defaultValue) {
+  const value = process.env[name];
+  if (value === undefined || value === null || value === "") {
+    return defaultValue;
+  }
+  const parsed = Number.parseInt(String(value), 10);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+    return defaultValue;
+  }
+  return parsed;
+}
+
 async function main() {
   const hostId = process.env.ADHD_HOST_ID || "h_local";
   const port = Number.parseInt(process.env.PORT || "8787", 10);
@@ -41,6 +53,13 @@ async function main() {
     defaultMode: envMode("ADHD_DELEGATION_DEFAULT_MODE", "fallback_workers"),
     allowMultiAgent: envBoolean("ADHD_DELEGATION_ALLOW_MULTI_AGENT", true),
     multiAgentKillSwitch: envBoolean("ADHD_MULTI_AGENT_KILL_SWITCH", false)
+  };
+  const mobileRuntimeConfig = {
+    enabled: envBoolean("ADHD_MOBILE_ENABLED", true),
+    pairingTtlMs: envPositiveInt("ADHD_MOBILE_PAIRING_TTL_MS", 5 * 60 * 1000),
+    sessionTtlMs: envPositiveInt("ADHD_MOBILE_SESSION_TTL_MS", 30 * 24 * 60 * 60 * 1000),
+    eventsMax: envPositiveInt("ADHD_MOBILE_EVENTS_MAX", 1000),
+    streamHeartbeatMs: envPositiveInt("ADHD_MOBILE_HEARTBEAT_MS", 15000)
   };
 
   const processManager = new AppServerProcess({
@@ -105,7 +124,8 @@ async function main() {
     isRuntimeReady: () => runtimeStatus.ready,
     getRuntimeStatus: () => ({ ...runtimeStatus }),
     getHostCapabilities: () => ({ ...hostCapabilities }),
-    getDelegationPolicy: () => ({ ...defaultDelegationPolicy })
+    getDelegationPolicy: () => ({ ...defaultDelegationPolicy }),
+    getMobileConfig: () => ({ ...mobileRuntimeConfig })
   });
 
   const server = http.createServer((req, res) => {
@@ -151,6 +171,7 @@ async function main() {
         runtime: runtimeStatus,
         hostCapabilities,
         delegationPolicy: defaultDelegationPolicy,
+        mobile: mobileRuntimeConfig,
         rpcOutgoingMode
       },
       null,

@@ -13,9 +13,11 @@ const REQUIRED = [
   "llm/project/phases/session-runtime-phase.md",
   "llm/project/phases/intent-router-phase.md",
   "llm/project/phases/mvp-phase.md",
+  "llm/project/phases/mobile-control-phase.md",
   "llm/project/phases/multi-host-federation-phase.md",
   "llm/workflows/phase-0-bootstrap.md",
-  "llm/workflows/phase-3-mvp-operator.md"
+  "llm/workflows/phase-3-mvp-operator.md",
+  "llm/workflows/phase-4-mobile-operator.md"
 ];
 
 const cwd = process.cwd();
