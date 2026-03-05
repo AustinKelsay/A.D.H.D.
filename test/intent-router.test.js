@@ -127,6 +127,29 @@ test("validateStructuredPlan fails when intentContractVersion is unsupported", (
   );
 });
 
+test("validateStructuredPlan fails when paths include non-string entries", () => {
+  const intent = normalizeIntent({
+    inputText: "Fix bug in ./src/runtime/host-runtime.js"
+  });
+
+  const plan = buildDeterministicPlan(intent, {
+    promptVersion: "conductor.v1",
+    requestedMode: "fallback_workers",
+    delegationPolicy: {},
+    hostCapabilities: { multi_agent: false }
+  });
+
+  plan.paths = ["./src/runtime/host-runtime.js", 101];
+
+  assert.throws(
+    () => validateStructuredPlan(plan, { intent }),
+    (error) =>
+      error instanceof RuntimeError
+      && error.code === "INVALID_PLAN"
+      && error.message.includes("paths must be an array of strings")
+  );
+});
+
 test("buildDeterministicPlan fails fast with INVALID_INPUT for malformed intent", () => {
   assert.throws(
     () =>

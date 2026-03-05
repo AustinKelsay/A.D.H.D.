@@ -1,5 +1,7 @@
 import { randomBytes } from "node:crypto";
 
+const DEFAULT_MAX_PENDING_PAIRINGS = 100;
+
 function nowIso() {
   return new Date().toISOString();
 }
@@ -54,12 +56,22 @@ function generateSessionToken() {
   return `ms_${randomBytes(18).toString("hex")}`;
 }
 
+function pruneMapByExpiry(map, expiresAtKey, nowMs) {
+  for (const [key, entry] of map.entries()) {
+    const expiresAtMs = Date.parse(entry?.[expiresAtKey]);
+    if (!Number.isFinite(expiresAtMs) || expiresAtMs <= nowMs) {
+      map.delete(key);
+    }
+  }
+}
+
 export class MobileControlManager {
   constructor({
     pairingTtlMs = 5 * 60 * 1000,
     sessionTtlMs = 30 * 24 * 60 * 60 * 1000,
     eventsMax = 1000,
     streamHeartbeatMs = 15000,
+    maxPendingPairings = DEFAULT_MAX_PENDING_PAIRINGS,
     enabled = true
   } = {}) {
     this.enabled = asBoolean(enabled, true);
@@ -67,6 +79,7 @@ export class MobileControlManager {
     this.sessionTtlMs = asPositiveInt(sessionTtlMs, 30 * 24 * 60 * 60 * 1000);
     this.eventsMax = asPositiveInt(eventsMax, 1000);
     this.streamHeartbeatMs = asPositiveInt(streamHeartbeatMs, 15000);
+    this.maxPendingPairings = asPositiveInt(maxPendingPairings, DEFAULT_MAX_PENDING_PAIRINGS);
 
     this.pairings = new Map();
     this.sessions = new Map();
@@ -76,6 +89,9 @@ export class MobileControlManager {
   }
 
   startPairing({ deviceLabel = null, initiatedBy = "desktop" } = {}) {
+    this.sweepExpiredEntries(Date.now());
+    this.enforcePairingCapacity();
+
     let pairingCode = generatePairingCode();
     while (this.pairings.has(pairingCode)) {
       pairingCode = generatePairingCode();
@@ -108,6 +124,8 @@ export class MobileControlManager {
   }
 
   completePairing(pairingCode, { deviceLabel = null, userAgent = null } = {}) {
+    this.sweepExpiredEntries(Date.now());
+
     const key = typeof pairingCode === "string" ? pairingCode.trim().toUpperCase() : "";
     if (!key || !this.pairings.has(key)) {
       return null;
@@ -125,7 +143,6 @@ export class MobileControlManager {
     const createdAt = nowIso();
     const expiresAt = new Date(Date.now() + this.sessionTtlMs).toISOString();
     const session = {
-      token,
       deviceLabel: deviceLabel || pairing.deviceLabel || null,
       userAgent: typeof userAgent === "string" ? userAgent : null,
       createdAt,
@@ -150,11 +167,48 @@ export class MobileControlManager {
     };
   }
 
+  sweepExpiredEntries(nowMs = Date.now()) {
+    pruneMapByExpiry(this.pairings, "expiresAt", nowMs);
+
+    for (const [token, session] of this.sessions.entries()) {
+      const expiresAtMs = Date.parse(session.expiresAt);
+      if (!Number.isFinite(expiresAtMs) || expiresAtMs <= nowMs) {
+        this.sessions.delete(token);
+      }
+    }
+  }
+
+  pruneExpiredPairings(nowMs = Date.now()) {
+    pruneMapByExpiry(this.pairings, "expiresAt", nowMs);
+  }
+
+  enforcePairingCapacity() {
+    while (this.pairings.size >= this.maxPendingPairings) {
+      let oldestKey = null;
+      let oldestCreatedAt = Number.POSITIVE_INFINITY;
+
+      for (const [key, pairing] of this.pairings.entries()) {
+        const createdAtMs = Date.parse(pairing.createdAt);
+        if (createdAtMs < oldestCreatedAt) {
+          oldestCreatedAt = createdAtMs;
+          oldestKey = key;
+        }
+      }
+
+      if (!oldestKey) {
+        break;
+      }
+      this.pairings.delete(oldestKey);
+    }
+  }
+
   readTokenFromRequest(req) {
     return parseBearerToken(req?.headers?.authorization || "");
   }
 
   getSession(token, { touch = true } = {}) {
+    this.sweepExpiredEntries(Date.now());
+
     if (!token || typeof token !== "string") {
       return null;
     }

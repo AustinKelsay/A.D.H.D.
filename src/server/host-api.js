@@ -459,7 +459,7 @@ function defaultDelegationPolicy(options) {
   return policy;
 }
 
-function parsePolicyFlag(value, defaultValue) {
+function parseBooleanFlag(value, defaultValue = false) {
   if (value === undefined || value === null) {
     return defaultValue;
   }
@@ -471,8 +471,13 @@ function parsePolicyFlag(value, defaultValue) {
     if (["true", "1", "on", "yes"].includes(normalized)) {
       return true;
     }
+    return defaultValue;
   }
   return Boolean(value);
+}
+
+function parsePolicyFlag(value, defaultValue) {
+  return parseBooleanFlag(value, defaultValue);
 }
 
 function parsePolicyMode(value, fallback = "fallback_workers") {
@@ -504,19 +509,7 @@ function mergeDelegationPolicy(basePolicy = {}, requestPolicy = {}) {
 }
 
 function parseCapabilityFlag(value, defaultValue = false) {
-  if (value === undefined || value === null) {
-    return defaultValue;
-  }
-  if (typeof value === "string") {
-    const normalized = value.trim().toLowerCase();
-    if (["false", "0", "off", "no"].includes(normalized)) {
-      return false;
-    }
-    if (["true", "1", "on", "yes"].includes(normalized)) {
-      return true;
-    }
-  }
-  return Boolean(value);
+  return parseBooleanFlag(value, defaultValue);
 }
 
 function mergeTrustedHostCapabilities(baseCapabilities, requestedCapabilities) {
@@ -678,7 +671,7 @@ export function createHostApiHandler({
   };
   const mobile = new MobileControlManager(mobileConfig(options));
 
-  if (typeof runtime.on === "function") {
+  if (mobile.enabled && typeof runtime.on === "function") {
     runtime.on("approvalRequested", (event) => {
       mobile.appendEvent({
         type: "runtime.approvalRequested",
@@ -698,7 +691,7 @@ export function createHostApiHandler({
     });
   }
 
-  if (runtime.store && typeof runtime.store.on === "function") {
+  if (mobile.enabled && runtime.store && typeof runtime.store.on === "function") {
     runtime.store.on("created", (job) => {
       mobile.appendEvent({
         type: "job.created",

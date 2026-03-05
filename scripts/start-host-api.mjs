@@ -34,7 +34,11 @@ function envPositiveInt(name, defaultValue) {
   if (value === undefined || value === null || value === "") {
     return defaultValue;
   }
-  const parsed = Number.parseInt(String(value), 10);
+  const rawValue = String(value).trim();
+  if (!/^[0-9]+$/.test(rawValue)) {
+    return defaultValue;
+  }
+  const parsed = Number.parseInt(rawValue, 10);
   if (!Number.isSafeInteger(parsed) || parsed <= 0) {
     return defaultValue;
   }
@@ -59,7 +63,8 @@ async function main() {
     pairingTtlMs: envPositiveInt("ADHD_MOBILE_PAIRING_TTL_MS", 5 * 60 * 1000),
     sessionTtlMs: envPositiveInt("ADHD_MOBILE_SESSION_TTL_MS", 30 * 24 * 60 * 60 * 1000),
     eventsMax: envPositiveInt("ADHD_MOBILE_EVENTS_MAX", 1000),
-    streamHeartbeatMs: envPositiveInt("ADHD_MOBILE_HEARTBEAT_MS", 15000)
+    streamHeartbeatMs: envPositiveInt("ADHD_MOBILE_HEARTBEAT_MS", 15000),
+    maxPendingPairings: envPositiveInt("ADHD_MOBILE_MAX_PENDING_PAIRINGS", 100)
   };
 
   const processManager = new AppServerProcess({

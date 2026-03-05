@@ -17,7 +17,8 @@ const REQUIRED = [
   "llm/project/phases/multi-host-federation-phase.md",
   "llm/workflows/phase-0-bootstrap.md",
   "llm/workflows/phase-3-mvp-operator.md",
-  "llm/workflows/phase-4-mobile-operator.md"
+  "llm/workflows/phase-4-mobile-operator.md",
+  "llm/workflows/phase-5-federation-operator.md"
 ];
 
 const cwd = process.cwd();
