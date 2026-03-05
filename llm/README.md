@@ -4,8 +4,8 @@
 Source of truth for project planning, phase execution, and implementation contracts.
 
 ## Current Milestone
-- Phase 7 (reliability and observability) baseline is implemented.
-- Active build target is Phase 8 (review and hardening).
+- Phase 8 (review and hardening) baseline is implemented.
+- Active build target is Phase 9 (release and distribution).
 
 ## Folder Intent
 - `project/` - canonical product and architecture definitions.
@@ -32,12 +32,15 @@ Source of truth for project planning, phase execution, and implementation contra
 - `project/phases/multi-host-federation-phase.md`
 - `project/phases/run-catalog-phase.md`
 - `project/phases/reliability-and-observability-phase.md`
+- `project/phases/review-and-hardening-phase.md`
+- `project/phases/release-and-distribution-phase.md`
 - `workflows/phase-0-bootstrap.md`
 - `workflows/phase-3-mvp-operator.md`
 - `workflows/phase-4-mobile-operator.md`
 - `workflows/phase-5-federation-operator.md`
 - `workflows/phase-6-run-catalog-operator.md`
 - `workflows/phase-7-reliability-operator.md`
+- `workflows/phase-8-hardening-operator.md`
 
 ## Phase 0 Commands
 - `npm run health`
@@ -106,3 +109,16 @@ Source of truth for project planning, phase execution, and implementation contra
 
 ## Phase 7 Runbook
 - `workflows/phase-7-reliability-operator.md`
+
+## Phase 8 Commands
+- `npm run phase8:verify`
+
+## Phase 8 Workflow Guardrails
+- `workspace.root` is resolved under the repo and rejected if it escapes containment.
+- `hooks.timeout_ms` bounds shell hook execution time.
+- `hooks.after_create` and `hooks.before_run` fail closed for new attempts.
+- `hooks.after_run` and `hooks.before_remove` are best effort and preserve cleanup flow.
+- hook stdout/stderr is redacted and truncated before surfacing in telemetry/errors.
+
+## Phase 8 Runbook
+- `workflows/phase-8-hardening-operator.md`

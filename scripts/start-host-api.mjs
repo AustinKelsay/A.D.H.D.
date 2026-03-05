@@ -183,6 +183,8 @@ async function main() {
     getWorkflowStatus: () => workflowStore.status(),
     validateWorkflowPreflight: () => workflowStore.preflight(),
     getWorkflowStartDefaults: () => workflowStore.getStartDefaults(),
+    getWorkflowHookPolicy: () => workflowStore.getHookPolicy(),
+    getWorkflowWorkspacePolicy: () => workflowStore.getWorkspacePolicy(),
     refreshWorkflow: () => workflowStore.refreshAsync(),
     logEvent: (event) => emitStructuredEvent("hostApiTelemetry", event)
   });

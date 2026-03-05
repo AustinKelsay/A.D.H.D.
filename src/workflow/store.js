@@ -20,6 +20,19 @@ const DEFAULT_CODEX_POLICY = Object.freeze({
   stallTimeoutMs: 300000
 });
 
+const DEFAULT_WORKSPACE_POLICY = Object.freeze({
+  root: ".adhd/workspaces",
+  requirePathContainment: true
+});
+
+const DEFAULT_HOOK_POLICY = Object.freeze({
+  timeoutMs: 60000,
+  afterCreate: null,
+  beforeRun: null,
+  afterRun: null,
+  beforeRemove: null
+});
+
 function clone(value) {
   return structuredClone(value);
 }
@@ -191,7 +204,7 @@ function validateWorkflowConfig(config = {}) {
     : {};
   const hasCodexConfig = Object.keys(codex).length > 0;
   if (!hasCodexConfig) {
-    return { ok: true };
+    return validateWorkflowRuntimeConfig(config);
   }
 
   const command = codex.command;
@@ -206,7 +219,141 @@ function validateWorkflowConfig(config = {}) {
     };
   }
 
+  const runtimeValidation = validateWorkflowRuntimeConfig(config);
+  if (!runtimeValidation.ok) {
+    return runtimeValidation;
+  }
+
   return { ok: true };
+}
+
+function validateHookCommand(command, field) {
+  if (command === null || command === undefined) {
+    return { ok: true };
+  }
+  if (typeof command !== "string" || !command.trim()) {
+    return {
+      ok: false,
+      code: "WORKFLOW_INVALID",
+      message: `workflow ${field} must be null or a non-empty string`,
+      details: { field }
+    };
+  }
+  return { ok: true };
+}
+
+function validateWorkflowRuntimeConfig(config = {}) {
+  const workspace = config.workspace && typeof config.workspace === "object" && !Array.isArray(config.workspace)
+    ? config.workspace
+    : {};
+  const hooks = config.hooks && typeof config.hooks === "object" && !Array.isArray(config.hooks)
+    ? config.hooks
+    : {};
+
+  if (workspace.root !== undefined) {
+    if (typeof workspace.root !== "string" || !workspace.root.trim()) {
+      return {
+        ok: false,
+        code: "WORKFLOW_INVALID",
+        message: "workflow workspace.root must be a non-empty string",
+        details: {
+          field: "workspace.root"
+        }
+      };
+    }
+  }
+
+  if (
+    workspace.require_path_containment !== undefined &&
+    typeof workspace.require_path_containment !== "boolean"
+  ) {
+    return {
+      ok: false,
+      code: "WORKFLOW_INVALID",
+      message: "workflow workspace.require_path_containment must be a boolean",
+      details: {
+        field: "workspace.require_path_containment"
+      }
+    };
+  }
+
+  if (hooks.timeout_ms !== undefined && asPositiveInt(hooks.timeout_ms, null) === null) {
+    return {
+      ok: false,
+      code: "WORKFLOW_INVALID",
+      message: "workflow hooks.timeout_ms must be a positive integer",
+      details: {
+        field: "hooks.timeout_ms"
+      }
+    };
+  }
+
+  for (const [field, value] of Object.entries({
+    "hooks.after_create": hooks.after_create,
+    "hooks.before_run": hooks.before_run,
+    "hooks.after_run": hooks.after_run,
+    "hooks.before_remove": hooks.before_remove
+  })) {
+    const result = validateHookCommand(value, field);
+    if (!result.ok) {
+      return result;
+    }
+  }
+
+  return { ok: true };
+}
+
+function isPathContained(rootPath, candidatePath) {
+  const relativePath = path.relative(rootPath, candidatePath);
+  if (!relativePath) {
+    return true;
+  }
+  return !relativePath.startsWith("..") && !path.isAbsolute(relativePath);
+}
+
+function resolveWorkspacePolicy(config = {}, { repoRoot = process.cwd() } = {}) {
+  const workspace = config.workspace && typeof config.workspace === "object" && !Array.isArray(config.workspace)
+    ? config.workspace
+    : {};
+  const rootValue = typeof workspace.root === "string" && workspace.root.trim()
+    ? workspace.root.trim()
+    : DEFAULT_WORKSPACE_POLICY.root;
+  const requirePathContainment = asBoolean(
+    workspace.require_path_containment,
+    DEFAULT_WORKSPACE_POLICY.requirePathContainment
+  );
+  const rootPath = path.resolve(repoRoot, rootValue);
+
+  if (requirePathContainment && !isPathContained(path.resolve(repoRoot), rootPath)) {
+    throw new Error(`workflow workspace.root escapes repoRoot: ${rootValue}`);
+  }
+
+  return {
+    root: rootValue,
+    rootPath,
+    requirePathContainment
+  };
+}
+
+function resolveHookPolicy(config = {}) {
+  const hooks = config.hooks && typeof config.hooks === "object" && !Array.isArray(config.hooks)
+    ? config.hooks
+    : {};
+
+  const readCommand = (value) => {
+    if (typeof value !== "string" || !value.trim()) {
+      return null;
+    }
+    return value.trim();
+  };
+
+  return {
+    timeoutMs: asPositiveInt(hooks.timeout_ms, DEFAULT_HOOK_POLICY.timeoutMs),
+    afterCreate: readCommand(hooks.after_create),
+    beforeRun: readCommand(hooks.before_run),
+    afterRun: readCommand(hooks.after_run),
+    beforeRemove: readCommand(hooks.before_remove)
+  };
 }
 
 function resolveCandidatePath({
@@ -349,6 +496,10 @@ export class WorkflowStore {
           loadedAt: nowIso(),
           contentHash,
           config: parsed.config,
+          workspacePolicy: resolveWorkspacePolicy(parsed.config, {
+            repoRoot: this.repoRoot
+          }),
+          hookPolicy: resolveHookPolicy(parsed.config),
           promptTemplate: parsed.promptTemplate
         };
         this.lastHash = contentHash;
@@ -534,6 +685,37 @@ export class WorkflowStore {
         sandboxPolicy: codex.turnSandboxPolicy
       }
     };
+  }
+
+  getWorkspacePolicy() {
+    const current = this.current();
+    if (!current.ok) {
+      return {
+        ...DEFAULT_WORKSPACE_POLICY,
+        rootPath: path.resolve(this.repoRoot, DEFAULT_WORKSPACE_POLICY.root)
+      };
+    }
+
+    if (current.workflow.workspacePolicy) {
+      return clone(current.workflow.workspacePolicy);
+    }
+
+    return resolveWorkspacePolicy(current.workflow.config || {}, {
+      repoRoot: this.repoRoot
+    });
+  }
+
+  getHookPolicy() {
+    const current = this.current();
+    if (!current.ok) {
+      return clone(DEFAULT_HOOK_POLICY);
+    }
+
+    if (current.workflow.hookPolicy) {
+      return clone(current.workflow.hookPolicy);
+    }
+
+    return resolveHookPolicy(current.workflow.config || {});
   }
 }
 

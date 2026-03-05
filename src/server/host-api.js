@@ -1,5 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { RuntimeError } from "../runtime/errors.js";
+import { isTerminalState, JOB_STATES } from "../runtime/state-machine.js";
+import { createWorkflowHookRunner } from "../workflow/index.js";
 import {
   buildDeterministicPlan,
   getConductorPromptPackage,
@@ -538,6 +540,31 @@ function workflowStartDefaults(options) {
   };
 }
 
+function buildHookJobContext({
+  jobId,
+  hostId,
+  inputText,
+  intake,
+  delegationMode,
+  policySnapshot,
+  intent,
+  plan,
+  delegationDecision
+}) {
+  return {
+    jobId,
+    hostId,
+    inputText,
+    intake: intake || null,
+    delegationMode,
+    policySnapshot: policySnapshot || null,
+    intent: intent || null,
+    plan: plan || null,
+    delegationDecision: delegationDecision || null,
+    state: JOB_STATES.QUEUED
+  };
+}
+
 function resolveStartParams(options, requested) {
   if (requested !== undefined && requested !== null && !isPlainObject(requested)) {
     throw new RuntimeError("INVALID_INPUT", "start parameters must be an object");
@@ -804,6 +831,8 @@ export function createHostApiHandler({
   validateWorkflowPreflight,
   getWorkflowStartDefaults,
   refreshWorkflow,
+  getWorkflowHookPolicy,
+  getWorkflowWorkspacePolicy,
   logEvent
 } = {}) {
   if (!runtime) {
@@ -820,6 +849,8 @@ export function createHostApiHandler({
     validateWorkflowPreflight,
     getWorkflowStartDefaults,
     refreshWorkflow,
+    getWorkflowHookPolicy,
+    getWorkflowWorkspacePolicy,
     logEvent
   };
   const metrics = {
@@ -834,6 +865,12 @@ export function createHostApiHandler({
       lastAttemptAt: null,
       lastSuccessAt: null,
       lastFailureAt: null,
+      lastFailureCode: null
+    },
+    workflowHooks: {
+      attempts: 0,
+      successes: 0,
+      failures: 0,
       lastFailureCode: null
     }
   };
@@ -855,6 +892,41 @@ export function createHostApiHandler({
       });
     } catch {
       // Ignore telemetry sink errors.
+    }
+  };
+  const hookRunner = (
+    typeof options.getWorkflowHookPolicy === "function" &&
+    typeof options.getWorkflowWorkspacePolicy === "function"
+  )
+    ? createWorkflowHookRunner({
+        hostId,
+        getHookPolicy: () => options.getWorkflowHookPolicy(),
+        getWorkspacePolicy: () => options.getWorkflowWorkspacePolicy(),
+        logEvent: (payload) => emit(payload.event, payload)
+      })
+    : null;
+  const runHookStage = async (hookMethod, job, { required = false } = {}) => {
+    if (!hookRunner || typeof hookRunner[hookMethod] !== "function" || !job) {
+      return null;
+    }
+
+    metrics.workflowHooks.attempts += 1;
+    try {
+      const result = await hookRunner[hookMethod](job);
+      if (result?.ok === false) {
+        metrics.workflowHooks.failures += 1;
+        metrics.workflowHooks.lastFailureCode = "WORKFLOW_HOOK_FAILED";
+      } else {
+        metrics.workflowHooks.successes += 1;
+      }
+      return result;
+    } catch (error) {
+      metrics.workflowHooks.failures += 1;
+      metrics.workflowHooks.lastFailureCode = error?.code || "WORKFLOW_HOOK_FAILED";
+      if (required) {
+        throw error;
+      }
+      return null;
     }
   };
   const mobile = new MobileControlManager(mobileConfig(options));
@@ -906,6 +978,17 @@ export function createHostApiHandler({
           updatedAt: job?.timestamps?.updatedAt || null
         }
       });
+    });
+
+    runtime.store.on("transition", (event) => {
+      if (!hookRunner || !isTerminalState(event?.to)) {
+        return;
+      }
+      const job = typeof runtime.getJob === "function" ? runtime.getJob(event.jobId) : null;
+      if (!job) {
+        return;
+      }
+      void runHookStage("afterRun", job, { required: false });
     });
   }
 
@@ -1165,9 +1248,24 @@ export function createHostApiHandler({
         });
         const body = await readJsonBody(req);
         const { intake, intent, plan, promptPackage } = resolveIntentAndPlan(body, options);
+        const jobId = body.jobId || createJobId();
+
+        await runHookStage("onJobCreated", buildHookJobContext({
+          jobId,
+          hostId,
+          inputText: intent.rawText,
+          intake,
+          delegationMode: plan.delegation.selectedMode,
+          policySnapshot: body.policySnapshot,
+          intent,
+          plan,
+          delegationDecision: plan.delegation
+        }), {
+          required: true
+        });
 
         const job = runtime.createJob({
-          jobId: body.jobId || createJobId(),
+          jobId,
           inputText: intent.rawText,
           intake,
           delegationMode: plan.delegation.selectedMode,
@@ -1195,6 +1293,21 @@ export function createHostApiHandler({
         });
         const body = await readJsonBody(req);
         const { intake, intent, plan, promptPackage } = resolveIntentAndPlan(body, options);
+        const jobId = body.jobId || createJobId();
+
+        await runHookStage("onJobCreated", buildHookJobContext({
+          jobId,
+          hostId,
+          inputText: intent.rawText,
+          intake,
+          delegationMode: plan.delegation.selectedMode,
+          policySnapshot: body.policySnapshot,
+          intent,
+          plan,
+          delegationDecision: plan.delegation
+        }), {
+          required: true
+        });
 
         if (body.autoStart === true && !isRuntimeReady(options)) {
           return json(res, 503, {
@@ -1208,7 +1321,7 @@ export function createHostApiHandler({
         }
 
         let job = runtime.createJob({
-          jobId: body.jobId || createJobId(),
+          jobId,
           inputText: intent.rawText,
           intake,
           delegationMode: plan.delegation.selectedMode,
@@ -1219,6 +1332,7 @@ export function createHostApiHandler({
         });
 
         if (body.autoStart === true) {
+          await runHookStage("beforeRun", job, { required: true });
           const startParams = resolveStartParams(options, body.startParams || {});
           job = await runtime.startJob(job.jobId, startParams);
         }
@@ -1330,6 +1444,8 @@ export function createHostApiHandler({
 
         const body = await readJsonBody(req);
         const startParams = resolveStartParams(options, body);
+        const currentJob = typeof runtime.getJob === "function" ? runtime.getJob(parts[2]) : null;
+        await runHookStage("beforeRun", currentJob, { required: true });
         const job = await runtime.startJob(parts[2], startParams);
         return json(res, 200, { ok: true, job });
       }
@@ -1360,8 +1476,11 @@ export function createHostApiHandler({
           });
         }
 
+        const existingJob = typeof runtime.getJob === "function" ? runtime.getJob(parts[2]) : null;
+        await runHookStage("beforeRemove", existingJob, { required: false });
         let job = await runtime.retryJob(parts[2]);
         if (body.startNow === true) {
+          await runHookStage("beforeRun", job, { required: true });
           const startParams = resolveStartParams(options, body.startParams || {});
           job = await runtime.startJob(parts[2], startParams);
         }

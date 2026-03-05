@@ -18,11 +18,16 @@ const REQUIRED = [
   "llm/project/phases/mobile-control-phase.md",
   "llm/project/phases/multi-host-federation-phase.md",
   "llm/project/phases/run-catalog-phase.md",
+  "llm/project/phases/reliability-and-observability-phase.md",
+  "llm/project/phases/review-and-hardening-phase.md",
+  "llm/project/phases/release-and-distribution-phase.md",
   "llm/workflows/phase-0-bootstrap.md",
   "llm/workflows/phase-3-mvp-operator.md",
   "llm/workflows/phase-4-mobile-operator.md",
   "llm/workflows/phase-5-federation-operator.md",
-  "llm/workflows/phase-6-run-catalog-operator.md"
+  "llm/workflows/phase-6-run-catalog-operator.md",
+  "llm/workflows/phase-7-reliability-operator.md",
+  "llm/workflows/phase-8-hardening-operator.md"
 ];
 
 const cwd = process.cwd();
