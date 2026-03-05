@@ -4,8 +4,8 @@
 Source of truth for project planning, phase execution, and implementation contracts.
 
 ## Current Milestone
-- Phase 4 (mobile control parity) baseline is implemented.
-- Next build target is Phase 5 (multi-host federation).
+- Phase 5 (multi-host federation) baseline is implemented.
+- Next build target is Phase 6 (run catalog).
 
 ## Folder Intent
 - `project/` - canonical product and architecture definitions.
@@ -32,6 +32,7 @@ Source of truth for project planning, phase execution, and implementation contra
 - `workflows/phase-0-bootstrap.md`
 - `workflows/phase-3-mvp-operator.md`
 - `workflows/phase-4-mobile-operator.md`
+- `workflows/phase-5-federation-operator.md`
 
 ## Phase 0 Commands
 - `npm run health`
@@ -66,11 +67,19 @@ Source of truth for project planning, phase execution, and implementation contra
 - `npm run phase3:verify`
 
 ## Phase 3 Runbook
-- `llm/workflows/phase-3-mvp-operator.md`
+- `workflows/phase-3-mvp-operator.md`
 
 ## Phase 4 Commands
 - `npm test`
 - `npm run phase4:verify`
 
 ## Phase 4 Runbook
-- `llm/workflows/phase-4-mobile-operator.md`
+- `workflows/phase-4-mobile-operator.md`
+
+## Phase 5 Commands
+- `npm run federation-api:start`
+- `npm test`
+- `npm run phase5:verify`
+
+## Phase 5 Runbook
+- `workflows/phase-5-federation-operator.md`

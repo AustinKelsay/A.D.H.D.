@@ -87,6 +87,9 @@ export function validatePlan(plan, { intent = null } = {}) {
   if (!Array.isArray(plan.paths)) {
     fail("paths must be an array");
   }
+  if (!plan.paths.every((entry) => typeof entry === "string")) {
+    fail("paths must be an array of strings");
+  }
 
   assertSteps(plan.steps);
   assertDelegation(plan.delegation);

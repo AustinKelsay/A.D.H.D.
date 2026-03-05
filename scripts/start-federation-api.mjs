@@ -6,10 +6,9 @@ import {
   AppServerProcess,
   CodexAppServerAdapter,
   HostRuntime,
-  JsonRpcClient,
   loadAvailableMethods
 } from "../src/runtime/index.js";
-import { createHostApiHandler } from "../src/server/host-api.js";
+import { createFederationApiHandler } from "../src/server/federation-api.js";
 
 function envBoolean(name, defaultValue = false) {
   const value = process.env[name];
@@ -45,40 +44,36 @@ function envPositiveInt(name, defaultValue) {
   return parsed;
 }
 
-async function main() {
-  const hostId = process.env.ADHD_HOST_ID || "h_local";
-  const port = Number.parseInt(process.env.PORT || "8787", 10);
-  const skipInitialize = envBoolean("ADHD_SKIP_INITIALIZE", false);
-  const rpcOutgoingMode = process.env.ADHD_RPC_OUTGOING_MODE || "framed";
-  const hostCapabilities = {
-    multi_agent: envBoolean("ADHD_HOST_MULTI_AGENT", false)
-  };
-  const defaultDelegationPolicy = {
-    defaultMode: envMode("ADHD_DELEGATION_DEFAULT_MODE", "fallback_workers"),
-    allowMultiAgent: envBoolean("ADHD_DELEGATION_ALLOW_MULTI_AGENT", true),
-    multiAgentKillSwitch: envBoolean("ADHD_MULTI_AGENT_KILL_SWITCH", false)
-  };
-  const mobileRuntimeConfig = {
-    enabled: envBoolean("ADHD_MOBILE_ENABLED", true),
-    pairingTtlMs: envPositiveInt("ADHD_MOBILE_PAIRING_TTL_MS", 5 * 60 * 1000),
-    sessionTtlMs: envPositiveInt("ADHD_MOBILE_SESSION_TTL_MS", 30 * 24 * 60 * 60 * 1000),
-    eventsMax: envPositiveInt("ADHD_MOBILE_EVENTS_MAX", 1000),
-    streamHeartbeatMs: envPositiveInt("ADHD_MOBILE_HEARTBEAT_MS", 15000),
-    maxPendingPairings: envPositiveInt("ADHD_MOBILE_MAX_PENDING_PAIRINGS", 100)
-  };
+function parseHostIds() {
+  const source = process.env.ADHD_FED_HOSTS || "h_alpha01,h_bravo02";
+  const ids = source
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  if (ids.length === 0) {
+    throw new Error("ADHD_FED_HOSTS must contain at least one host id.");
+  }
+  return ids;
+}
 
+async function initializeHostRuntime({
+  hostId,
+  skipInitialize,
+  rpcOutgoingMode,
+  defaultHostCapabilities,
+  defaultDelegationPolicy,
+  mobileRuntimeConfig
+}) {
   const processManager = new AppServerProcess({
     codexBin: process.env.ADHD_CODEX_BIN || "codex",
     cwd: process.env.ADHD_HOST_CWD || process.cwd()
   });
-
   processManager.on("stderr", (line) => {
     if (!line?.trim()) {
       return;
     }
-    process.stderr.write(`[codex] ${line}`);
+    process.stderr.write(`[${hostId}] ${line}`);
   });
-
   processManager.start();
 
   const rpcClient = processManager.createRpcClient({
@@ -86,10 +81,9 @@ async function main() {
     outgoingMode: rpcOutgoingMode
   });
 
-  const availableMethods = loadAvailableMethods();
   const adapter = new CodexAppServerAdapter({
     rpcClient,
-    availableMethods
+    availableMethods: loadAvailableMethods()
   });
   const runtime = new HostRuntime({
     adapter,
@@ -120,17 +114,67 @@ async function main() {
   }
 
   runtime.on("approvalRequested", (event) => {
-    process.stdout.write(`${JSON.stringify({ type: "approvalRequested", ...event })}\n`);
+    process.stdout.write(`${JSON.stringify({ type: "approvalRequested", hostId, ...event })}\n`);
   });
 
-  const handler = createHostApiHandler({
+  return {
+    processManager,
+    rpcClient,
     runtime,
-    hostId,
-    isRuntimeReady: () => runtimeStatus.ready,
-    getRuntimeStatus: () => ({ ...runtimeStatus }),
-    getHostCapabilities: () => ({ ...hostCapabilities }),
-    getDelegationPolicy: () => ({ ...defaultDelegationPolicy }),
-    getMobileConfig: () => ({ ...mobileRuntimeConfig })
+    hostConfig: {
+      runtime,
+      isRuntimeReady: () => runtimeStatus.ready,
+      getRuntimeStatus: () => ({ ...runtimeStatus }),
+      getHostCapabilities: () => ({ ...defaultHostCapabilities }),
+      getDelegationPolicy: () => ({ ...defaultDelegationPolicy }),
+      getMobileConfig: () => ({ ...mobileRuntimeConfig })
+    },
+    runtimeStatus
+  };
+}
+
+async function main() {
+  const port = Number.parseInt(process.env.PORT || "8787", 10);
+  const skipInitialize = envBoolean("ADHD_SKIP_INITIALIZE", false);
+  const rpcOutgoingMode = process.env.ADHD_RPC_OUTGOING_MODE || "framed";
+  const hostIds = parseHostIds();
+
+  const defaultHostCapabilities = {
+    multi_agent: envBoolean("ADHD_HOST_MULTI_AGENT", false)
+  };
+  const defaultDelegationPolicy = {
+    defaultMode: envMode("ADHD_DELEGATION_DEFAULT_MODE", "fallback_workers"),
+    allowMultiAgent: envBoolean("ADHD_DELEGATION_ALLOW_MULTI_AGENT", true),
+    multiAgentKillSwitch: envBoolean("ADHD_MULTI_AGENT_KILL_SWITCH", false)
+  };
+  const mobileRuntimeConfig = {
+    enabled: envBoolean("ADHD_MOBILE_ENABLED", true),
+    pairingTtlMs: envPositiveInt("ADHD_MOBILE_PAIRING_TTL_MS", 5 * 60 * 1000),
+    sessionTtlMs: envPositiveInt("ADHD_MOBILE_SESSION_TTL_MS", 30 * 24 * 60 * 60 * 1000),
+    eventsMax: envPositiveInt("ADHD_MOBILE_EVENTS_MAX", 1000),
+    streamHeartbeatMs: envPositiveInt("ADHD_MOBILE_HEARTBEAT_MS", 15000),
+    maxPendingPairings: envPositiveInt("ADHD_MOBILE_MAX_PENDING_PAIRINGS", 100)
+  };
+
+  const hostResources = [];
+  const hosts = {};
+  for (const hostId of hostIds) {
+    const hostResource = await initializeHostRuntime({
+      hostId,
+      skipInitialize,
+      rpcOutgoingMode,
+      defaultHostCapabilities,
+      defaultDelegationPolicy,
+      mobileRuntimeConfig
+    });
+    hostResources.push(hostResource);
+    hosts[hostId] = hostResource.hostConfig;
+  }
+
+  const handler = createFederationApiHandler({
+    hosts,
+    heartbeatDegradedMs: envPositiveInt("ADHD_HEARTBEAT_DEGRADED_MS", 15000),
+    heartbeatOfflineMs: envPositiveInt("ADHD_HEARTBEAT_OFFLINE_MS", 30000)
   });
 
   const server = http.createServer((req, res) => {
@@ -171,13 +215,16 @@ async function main() {
     `${JSON.stringify(
       {
         ok: true,
-        hostId,
+        controlPlane: true,
         port,
-        runtime: runtimeStatus,
-        hostCapabilities,
+        hostIds,
+        runtime: {
+          skipInitialize,
+          rpcOutgoingMode
+        },
+        hostCapabilities: defaultHostCapabilities,
         delegationPolicy: defaultDelegationPolicy,
-        mobile: mobileRuntimeConfig,
-        rpcOutgoingMode
+        mobile: mobileRuntimeConfig
       },
       null,
       2
@@ -185,10 +232,12 @@ async function main() {
   );
 
   const shutdown = async (signal) => {
-    process.stdout.write(`Shutting down (${signal})...\n`);
+    process.stdout.write(`Shutting down federation API (${signal})...\n`);
     await new Promise((resolve) => server.close(resolve));
-    rpcClient.close();
-    await processManager.stop();
+    for (const resource of hostResources) {
+      resource.rpcClient.close();
+      await resource.processManager.stop();
+    }
     process.exit(0);
   };
 
@@ -198,7 +247,6 @@ async function main() {
       process.exit(1);
     });
   });
-
   process.on("SIGTERM", () => {
     shutdown("SIGTERM").catch((error) => {
       process.stderr.write(`${error.stack || error.message}\n`);

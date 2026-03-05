@@ -236,6 +236,7 @@ async function createMobileSession(handler, { deviceLabel = "test-phone" } = {})
   assert.equal(completed.statusCode, 200);
   assert.equal(completed.json.ok, true);
   assert.equal(typeof completed.json.token, "string");
+  assert.equal("token" in completed.json.session, false);
 
   return {
     token: completed.json.token,
@@ -615,21 +616,23 @@ test("health route includes effective host delegation policy", async () => {
 });
 
 test("mobile routes return 404 when mobile control is disabled (boolean or string)", async () => {
-  const runtime = new FakeRuntime();
-  const handler = createHostApiHandler({
-    runtime,
-    hostId: "h_test",
-    getMobileConfig: () => ({ enabled: "false" })
-  });
+  for (const enabledValue of [false, "false"]) {
+    const runtime = new FakeRuntime();
+    const handler = createHostApiHandler({
+      runtime,
+      hostId: "h_test",
+      getMobileConfig: () => ({ enabled: enabledValue })
+    });
 
-  const response = await invoke(handler, {
-    method: "POST",
-    url: "/api/mobile/pairing/start",
-    body: JSON.stringify({})
-  });
+    const response = await invoke(handler, {
+      method: "POST",
+      url: "/api/mobile/pairing/start",
+      body: JSON.stringify({})
+    });
 
-  assert.equal(response.statusCode, 404);
-  assert.equal(response.json.error.code, "MOBILE_DISABLED");
+    assert.equal(response.statusCode, 404);
+    assert.equal(response.json.error.code, "MOBILE_DISABLED");
+  }
 });
 
 test("mobile routes require bearer token after pairing endpoints", async () => {
@@ -661,6 +664,7 @@ test("mobile pairing/session lifecycle works end-to-end", async () => {
   assert.equal(session.statusCode, 200);
   assert.equal(session.json.ok, true);
   assert.equal(session.json.session.deviceLabel, "pixel-test");
+  assert.equal("token" in session.json.session, false);
 
   const revoked = await invoke(handler, {
     method: "POST",
@@ -684,6 +688,47 @@ test("mobile pairing/session lifecycle works end-to-end", async () => {
 
   assert.equal(afterRevoke.statusCode, 401);
   assert.equal(afterRevoke.json.error.code, "MOBILE_UNAUTHORIZED");
+});
+
+test("mobile pairing start enforces max pending pairing capacity", async () => {
+  const runtime = new FakeRuntime();
+  const handler = createHostApiHandler({
+    runtime,
+    hostId: "h_test",
+    getMobileConfig: () => ({
+      maxPendingPairings: 1,
+      pairingTtlMs: 60 * 1000
+    })
+  });
+
+  const firstStart = await invoke(handler, {
+    method: "POST",
+    url: "/api/mobile/pairing/start",
+    body: JSON.stringify({ deviceLabel: "first" })
+  });
+  assert.equal(firstStart.statusCode, 201);
+
+  const secondStart = await invoke(handler, {
+    method: "POST",
+    url: "/api/mobile/pairing/start",
+    body: JSON.stringify({ deviceLabel: "second" })
+  });
+  assert.equal(secondStart.statusCode, 201);
+
+  const firstComplete = await invoke(handler, {
+    method: "POST",
+    url: "/api/mobile/pairing/complete",
+    body: JSON.stringify({ pairingCode: firstStart.json.pairing.pairingCode })
+  });
+  assert.equal(firstComplete.statusCode, 401);
+  assert.equal(firstComplete.json.error.code, "MOBILE_PAIRING_INVALID");
+
+  const secondComplete = await invoke(handler, {
+    method: "POST",
+    url: "/api/mobile/pairing/complete",
+    body: JSON.stringify({ pairingCode: secondStart.json.pairing.pairingCode })
+  });
+  assert.equal(secondComplete.statusCode, 200);
 });
 
 test("mobile API proxies authenticated actions to canonical job routes", async () => {
