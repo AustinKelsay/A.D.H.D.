@@ -63,7 +63,7 @@ Enable one ADHD control plane to orchestrate multiple host machines.
 
 ## Phase 5 Policy Notes
 - Host enrollment and heartbeat are token-gated.
-- Control-plane privileged mutation routes may be operator-auth gated via `verifyControlPlaneToken`.
+- Control-plane privileged mutation routes MUST be operator-auth gated via `verifyControlPlaneToken` in non-local (staging and production) environments; local development may allow relaxed checks.
 - Dispatch/start/retry/interrupt are blocked unless host is `enrolled` and `online`.
 - Revoked hosts cannot receive new jobs.
 - Outage behavior is deterministic and test-covered.

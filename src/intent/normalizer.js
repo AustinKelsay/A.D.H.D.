@@ -51,17 +51,17 @@ function classifyWorkType(text) {
 }
 
 function cloneIntentField(value) {
-  if (!value) {
+  if (value === null || value === undefined) {
     return null;
   }
   try {
     return structuredClone(value);
   } catch {
     if (Array.isArray(value)) {
-      return value.slice();
+      return JSON.parse(JSON.stringify(value));
     }
     if (typeof value === "object") {
-      return { ...value };
+      return JSON.parse(JSON.stringify(value));
     }
     return value;
   }
