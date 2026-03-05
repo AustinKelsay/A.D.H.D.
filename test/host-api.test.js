@@ -14,6 +14,7 @@ class FakeRuntime extends EventEmitter {
     this.approvals = [];
     this.rejections = [];
     this.pending = [];
+    this.startCalls = [];
     this.store = new EventEmitter();
   }
 
@@ -60,11 +61,15 @@ class FakeRuntime extends EventEmitter {
     return [...this.jobs.values()];
   }
 
-  async startJob(jobId) {
+  async startJob(jobId, startParams = {}) {
     const job = this.getJob(jobId);
     if (!job) {
       throw new RuntimeError("JOB_NOT_FOUND", `Job not found: ${jobId}`);
     }
+    this.startCalls.push({
+      jobId,
+      startParams: structuredClone(startParams)
+    });
     const previousState = job.state;
     job.state = "running";
     job.timestamps.startedAt = new Date().toISOString();
@@ -665,7 +670,77 @@ test("health route includes effective host delegation policy", async () => {
   assert.equal(response.json.delegationPolicy.defaultMode, "multi_agent");
   assert.equal(response.json.delegationPolicy.allowMultiAgent, false);
   assert.equal(response.json.delegationPolicy.multiAgentKillSwitch, false);
+  assert.equal(response.json.workflow.enabled, false);
   assert.equal(response.json.mobile.enabled, true);
+});
+
+test("health route exposes workflow status/preflight when configured", async () => {
+  const runtime = new FakeRuntime();
+  const handler = createHostApiHandler({
+    runtime,
+    hostId: "h_test",
+    getWorkflowStatus: () => ({
+      path: "/tmp/WORKFLOW.md",
+      loaded: true
+    }),
+    validateWorkflowPreflight: () => ({
+      ok: false,
+      error: {
+        code: "WORKFLOW_INVALID",
+        message: "workflow invalid",
+        details: {
+          field: "codex.command"
+        }
+      }
+    })
+  });
+
+  const response = await invoke(handler, {
+    method: "GET",
+    url: "/health"
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json.workflow.enabled, true);
+  assert.equal(response.json.workflow.status.loaded, true);
+  assert.equal(response.json.workflow.preflight.ok, false);
+  assert.equal(response.json.workflow.preflight.error.code, "WORKFLOW_INVALID");
+});
+
+test("workflow preflight blocks planning and start routes", async () => {
+  const runtime = new FakeRuntime();
+  runtime.createJob({ jobId: "j_workflow_block", inputText: "Implement Z" });
+  const handler = createHostApiHandler({
+    runtime,
+    hostId: "h_test",
+    validateWorkflowPreflight: () => ({
+      ok: false,
+      error: {
+        code: "WORKFLOW_MISSING",
+        message: "workflow file missing"
+      }
+    })
+  });
+
+  const planned = await invoke(handler, {
+    method: "POST",
+    url: "/api/intent/plan",
+    body: JSON.stringify({
+      inputText: "Plan this work"
+    })
+  });
+
+  assert.equal(planned.statusCode, 503);
+  assert.equal(planned.json.error.code, "WORKFLOW_MISSING");
+
+  const started = await invoke(handler, {
+    method: "POST",
+    url: "/api/jobs/j_workflow_block/start",
+    body: JSON.stringify({})
+  });
+
+  assert.equal(started.statusCode, 503);
+  assert.equal(started.json.error.code, "WORKFLOW_MISSING");
 });
 
 test("mobile routes return 404 when mobile control is disabled (boolean or string)", async () => {
@@ -971,6 +1046,97 @@ test("start and interrupt routes", async () => {
 
   assert.equal(interrupted.statusCode, 200);
   assert.equal(interrupted.json.job.state, "cancelled");
+});
+
+test("start route merges workflow defaults into start params", async () => {
+  const runtime = new FakeRuntime();
+  runtime.createJob({ jobId: "j_start_defaults", inputText: "Implement Y" });
+  const handler = createHostApiHandler({
+    runtime,
+    hostId: "h_test",
+    getWorkflowStartDefaults: () => ({
+      threadStartParams: {
+        approvalPolicy: "never",
+        sandbox: "workspace-write"
+      },
+      turnStartParams: {
+        approvalPolicy: "never",
+        sandboxPolicy: { type: "workspaceWrite" }
+      }
+    })
+  });
+
+  const started = await invoke(handler, {
+    method: "POST",
+    url: "/api/jobs/j_start_defaults/start",
+    body: JSON.stringify({
+      threadStartParams: {
+        approvalPolicy: "on-failure"
+      },
+      turnStartParams: {
+        temperature: 0
+      }
+    })
+  });
+
+  assert.equal(started.statusCode, 200);
+  assert.equal(runtime.startCalls.length, 1);
+  assert.deepEqual(runtime.startCalls[0].startParams, {
+    threadStartParams: {
+      approvalPolicy: "on-failure",
+      sandbox: "workspace-write"
+    },
+    turnStartParams: {
+      approvalPolicy: "never",
+      sandboxPolicy: { type: "workspaceWrite" },
+      temperature: 0
+    }
+  });
+});
+
+test("intake autoStart merges workflow defaults into start params", async () => {
+  const runtime = new FakeRuntime();
+  const handler = createHostApiHandler({
+    runtime,
+    hostId: "h_test",
+    getWorkflowStartDefaults: () => ({
+      threadStartParams: {
+        approvalPolicy: "never",
+        sandbox: "workspace-write"
+      },
+      turnStartParams: {
+        approvalPolicy: "never"
+      }
+    })
+  });
+
+  const response = await invoke(handler, {
+    method: "POST",
+    url: "/api/intake",
+    body: JSON.stringify({
+      jobId: "j_intake_defaults",
+      inputText: "Implement Y",
+      autoStart: true,
+      startParams: {
+        turnStartParams: {
+          temperature: 0
+        }
+      }
+    })
+  });
+
+  assert.equal(response.statusCode, 201);
+  assert.equal(runtime.startCalls.length, 1);
+  assert.deepEqual(runtime.startCalls[0].startParams, {
+    threadStartParams: {
+      approvalPolicy: "never",
+      sandbox: "workspace-write"
+    },
+    turnStartParams: {
+      approvalPolicy: "never",
+      temperature: 0
+    }
+  });
 });
 
 test("retry route moves terminal job back to queued", async () => {

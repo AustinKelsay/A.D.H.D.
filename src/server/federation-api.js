@@ -1,9 +1,24 @@
 import { randomBytes } from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 import { Readable } from "node:stream";
 import { RuntimeError } from "../runtime/errors.js";
 import { createHostApiHandler } from "./host-api.js";
 
-const HOST_ID_PATTERN = /^h_[a-z0-9]{6,}$/;
+export const HOST_ID_PATTERN = /^h_[a-z0-9]{6,}$/;
+const ALLOWED_JOB_STATES = new Set([
+  "draft",
+  "queued",
+  "dispatching",
+  "planning",
+  "awaiting_approval",
+  "delegating",
+  "running",
+  "summarizing",
+  "completed",
+  "failed",
+  "cancelled"
+]);
 const NON_TERMINAL_STATES = new Set([
   "draft",
   "queued",
@@ -15,9 +30,356 @@ const NON_TERMINAL_STATES = new Set([
   "summarizing"
 ]);
 const MAX_JSON_BODY_BYTES = 5 * 1024 * 1024;
+const DEFAULT_ENROLLMENT_TOKEN_TTL_MS = 10 * 60 * 1000;
+const DEFAULT_CATALOG_LIMIT = 50;
+const MAX_CATALOG_LIMIT = 500;
+const RUN_CATALOG_VERSION = "run-catalog.v1";
 
 function nowIso() {
   return new Date().toISOString();
+}
+
+function clone(value) {
+  return structuredClone(value);
+}
+
+function parsePositiveInt(value, {
+  name,
+  defaultValue,
+  min = 0,
+  max = Number.MAX_SAFE_INTEGER
+}) {
+  if (value === null || value === undefined || value === "") {
+    return defaultValue;
+  }
+
+  const rawValue = String(value).trim();
+  const integerPattern = min >= 0 ? /^\d+$/ : /^-?\d+$/;
+  if (!integerPattern.test(rawValue)) {
+    throw new RuntimeError("INVALID_INPUT", `${name} must be an integer in range ${min}-${max}`);
+  }
+
+  const parsed = Number.parseInt(rawValue, 10);
+  if (!Number.isSafeInteger(parsed) || parsed < min || parsed > max) {
+    throw new RuntimeError("INVALID_INPUT", `${name} must be an integer in range ${min}-${max}`);
+  }
+  return parsed;
+}
+
+function parseOptionalIsoDate(value, name) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+
+  const parsedMs = Date.parse(String(value));
+  if (!Number.isFinite(parsedMs)) {
+    throw new RuntimeError("INVALID_INPUT", `${name} must be a valid date/time`);
+  }
+  return parsedMs;
+}
+
+function parseStateFilter(stateParam) {
+  if (!stateParam) {
+    return null;
+  }
+
+  const states = String(stateParam)
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  if (states.length === 0) {
+    return null;
+  }
+
+  for (const state of states) {
+    if (!ALLOWED_JOB_STATES.has(state)) {
+      throw new RuntimeError("INVALID_INPUT", `state filter includes unsupported state: ${state}`);
+    }
+  }
+  return states;
+}
+
+function parseRunCatalogQuery(reqUrl) {
+  const limit = parsePositiveInt(reqUrl.searchParams.get("limit"), {
+    name: "limit",
+    defaultValue: DEFAULT_CATALOG_LIMIT,
+    min: 1,
+    max: MAX_CATALOG_LIMIT
+  });
+  const offset = parsePositiveInt(reqUrl.searchParams.get("offset"), {
+    name: "offset",
+    defaultValue: 0,
+    min: 0,
+    max: 1000000
+  });
+
+  const hostId = reqUrl.searchParams.get("hostId") || null;
+  if (hostId !== null) {
+    ensureHostId(hostId);
+  }
+
+  const states = parseStateFilter(reqUrl.searchParams.get("state"));
+  const repo = reqUrl.searchParams.get("repo");
+  const qRaw = reqUrl.searchParams.get("q");
+  const q = typeof qRaw === "string" && qRaw.trim().length > 0 ? qRaw.trim().toLowerCase() : null;
+  const fromMs = parseOptionalIsoDate(reqUrl.searchParams.get("from"), "from");
+  const toMs = parseOptionalIsoDate(reqUrl.searchParams.get("to"), "to");
+
+  if (fromMs !== null && toMs !== null && fromMs > toMs) {
+    throw new RuntimeError("INVALID_INPUT", "from must be before or equal to to");
+  }
+
+  return {
+    hostId,
+    states,
+    repo: typeof repo === "string" && repo.trim().length > 0 ? repo.trim().toLowerCase() : null,
+    q,
+    fromMs,
+    toMs,
+    limit,
+    offset
+  };
+}
+
+function resolveRepoPath(job = {}) {
+  const candidates = [
+    job.intent?.target,
+    job.plan?.target,
+    job.intent?.metadata?.repoPath,
+    job.intent?.metadata?.repo,
+    job.intent?.metadata?.repository
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim()) {
+      return candidate.trim();
+    }
+  }
+  return null;
+}
+
+function buildCatalogEntry(job, { hostId, source = null, persistedAt = nowIso() } = {}) {
+  if (!job || typeof job !== "object" || !job.jobId) {
+    return null;
+  }
+
+  return {
+    catalogVersion: RUN_CATALOG_VERSION,
+    jobId: job.jobId,
+    hostId: hostId || job.hostId || null,
+    state: job.state || null,
+    delegationMode: job.delegationMode || null,
+    repoPath: resolveRepoPath(job),
+    inputText: typeof job.inputText === "string" ? job.inputText : null,
+    resultSummary: typeof job.resultSummary === "string" ? job.resultSummary : null,
+    artifactPaths: Array.isArray(job.artifactPaths) ? [...job.artifactPaths] : [],
+    timestamps: clone(job.timestamps || {}),
+    source: source ? clone(source) : null,
+    persistedAt,
+    job: clone(job)
+  };
+}
+
+function createRunCatalog({ catalogStorePath = null } = {}) {
+  const entries = new Map();
+  const resolvedPath = typeof catalogStorePath === "string" && catalogStorePath.trim()
+    ? path.resolve(catalogStorePath.trim())
+    : null;
+
+  const load = () => {
+    if (!resolvedPath || !fs.existsSync(resolvedPath)) {
+      return;
+    }
+
+    let parsed;
+    try {
+      parsed = JSON.parse(fs.readFileSync(resolvedPath, "utf8"));
+    } catch {
+      return;
+    }
+
+    if (!Array.isArray(parsed?.entries)) {
+      return;
+    }
+
+    for (const entry of parsed.entries) {
+      if (!entry || typeof entry !== "object" || typeof entry.jobId !== "string") {
+        continue;
+      }
+      entries.set(entry.jobId, clone(entry));
+    }
+  };
+
+  const flush = () => {
+    if (!resolvedPath) {
+      return;
+    }
+    fs.mkdirSync(path.dirname(resolvedPath), { recursive: true });
+    const tempPath = `${resolvedPath}.tmp`;
+    const payload = {
+      version: RUN_CATALOG_VERSION,
+      updatedAt: nowIso(),
+      entries: [...entries.values()]
+    };
+    fs.writeFileSync(tempPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+    fs.renameSync(tempPath, resolvedPath);
+  };
+
+  const upsert = (entry) => {
+    if (!entry || typeof entry !== "object" || typeof entry.jobId !== "string") {
+      return null;
+    }
+
+    const previous = entries.get(entry.jobId) || null;
+    const merged = previous
+      ? {
+          ...previous,
+          ...clone(entry),
+          timestamps: {
+            ...(previous.timestamps || {}),
+            ...(entry.timestamps || {})
+          },
+          source: entry.source === null || entry.source === undefined
+            ? previous.source ?? null
+            : clone(entry.source),
+          job: entry.job ? clone(entry.job) : previous.job
+        }
+      : clone(entry);
+
+    entries.set(merged.jobId, merged);
+    flush();
+    return clone(merged);
+  };
+
+  const upsertFromJob = (job, { hostId, source = null } = {}) => {
+    const entry = buildCatalogEntry(job, { hostId, source });
+    if (!entry) {
+      return null;
+    }
+    return upsert(entry);
+  };
+
+  load();
+
+  return {
+    path: resolvedPath,
+    list() {
+      return [...entries.values()].map(clone);
+    },
+    get(jobId) {
+      const entry = entries.get(jobId);
+      return entry ? clone(entry) : null;
+    },
+    upsert,
+    upsertFromJob
+  };
+}
+
+function filterCatalogEntries(entries, query) {
+  const filtered = entries.filter((entry) => {
+    if (query.hostId && entry.hostId !== query.hostId) {
+      return false;
+    }
+
+    if (query.states && !query.states.includes(entry.state)) {
+      return false;
+    }
+
+    if (query.repo) {
+      const repoPath = typeof entry.repoPath === "string" ? entry.repoPath.toLowerCase() : "";
+      if (!repoPath.includes(query.repo)) {
+        return false;
+      }
+    }
+
+    const createdAtMs = Date.parse(entry.timestamps?.createdAt || entry.timestamps?.updatedAt || entry.persistedAt || "");
+    if (query.fromMs !== null && (!Number.isFinite(createdAtMs) || createdAtMs < query.fromMs)) {
+      return false;
+    }
+    if (query.toMs !== null && (!Number.isFinite(createdAtMs) || createdAtMs > query.toMs)) {
+      return false;
+    }
+
+    if (query.q) {
+      const haystack = [
+        entry.jobId,
+        entry.hostId,
+        entry.inputText,
+        entry.resultSummary,
+        entry.repoPath
+      ]
+        .filter((part) => typeof part === "string")
+        .join(" ")
+        .toLowerCase();
+      if (!haystack.includes(query.q)) {
+        return false;
+      }
+    }
+    return true;
+  });
+
+  filtered.sort((a, b) => {
+    const aMs = Date.parse(a.timestamps?.updatedAt || a.persistedAt || 0);
+    const bMs = Date.parse(b.timestamps?.updatedAt || b.persistedAt || 0);
+    return bMs - aMs;
+  });
+
+  const paged = filtered.slice(query.offset, query.offset + query.limit);
+  return {
+    jobs: paged.map((entry) => clone(entry.job || {
+      jobId: entry.jobId,
+      hostId: entry.hostId,
+      state: entry.state,
+      delegationMode: entry.delegationMode,
+      inputText: entry.inputText,
+      resultSummary: entry.resultSummary,
+      artifactPaths: entry.artifactPaths,
+      timestamps: entry.timestamps
+    })),
+    catalog: paged.map(clone),
+    pagination: {
+      total: filtered.length,
+      limit: query.limit,
+      offset: query.offset,
+      returned: paged.length,
+      hasMore: query.offset + paged.length < filtered.length
+    },
+    filters: {
+      hostId: query.hostId,
+      state: query.states,
+      repo: query.repo,
+      q: query.q,
+      from: query.fromMs === null ? null : new Date(query.fromMs).toISOString(),
+      to: query.toMs === null ? null : new Date(query.toMs).toISOString()
+    }
+  };
+}
+
+function buildClonePayloadFromCatalogEntry(entry, {
+  jobId = null,
+  startNow = false,
+  startParams = {}
+} = {}) {
+  const sourceJob = entry?.job || {};
+  const payload = {
+    inputText: sourceJob.inputText,
+    intake: sourceJob.intake ?? null,
+    intent: sourceJob.intent ?? null,
+    plan: sourceJob.plan ?? null,
+    policySnapshot: sourceJob.policySnapshot ?? null
+  };
+
+  if (typeof jobId === "string" && jobId.trim()) {
+    payload.jobId = jobId.trim();
+  }
+  if (startNow === true) {
+    payload.autoStart = true;
+    payload.startParams = startParams && typeof startParams === "object" && !Array.isArray(startParams)
+      ? startParams
+      : {};
+  }
+  return payload;
 }
 
 function defaultCapabilities() {
@@ -184,18 +546,38 @@ async function invokeHandler(handler, { method, url, body = null, headers = {} }
       }
     };
 
-    Promise.resolve(handler(req, res)).then(() => {
-      if (!ended) {
-        res.end();
-      }
-    });
+    Promise.resolve(handler(req, res))
+      .then(() => {
+        if (!ended) {
+          res.end();
+        }
+      })
+      .catch((error) => {
+        if (ended) {
+          return;
+        }
+        responseStatusCode = 500;
+        res.end(
+          JSON.stringify({
+            ok: false,
+            error: {
+              code: error?.code || "INTERNAL_ERROR",
+              message: error?.message || "Unhandled nested handler error"
+            }
+          })
+        );
+      });
   });
 
   await done;
 
   let jsonBody = null;
   if (responseBody.trim()) {
-    jsonBody = JSON.parse(responseBody);
+    try {
+      jsonBody = JSON.parse(responseBody);
+    } catch {
+      jsonBody = null;
+    }
   }
 
   return {
@@ -226,6 +608,12 @@ function statusForErrorCode(code) {
   if (code === "INVALID_JSON" || code === "INVALID_INPUT") {
     return 400;
   }
+  if (code === "CONTROL_PLANE_UNAUTHORIZED") {
+    return 401;
+  }
+  if (code === "CONTROL_PLANE_FORBIDDEN") {
+    return 403;
+  }
   if (code === "HOST_NOT_FOUND" || code === "JOB_NOT_FOUND") {
     return 404;
   }
@@ -253,8 +641,8 @@ function ensureHostId(hostId) {
   }
 }
 
-function createHostRecord({ hostId, displayName = null } = {}) {
-  const createdAt = nowIso();
+function createHostRecord({ hostId, displayName = null, nowIsoFn = nowIso } = {}) {
+  const createdAt = nowIsoFn();
   return {
     hostId,
     displayName: displayName || hostId,
@@ -283,13 +671,38 @@ function sanitizeHostRecord(record) {
 
 export function createFederationApiHandler({
   hosts = {},
+  verifyControlPlaneToken,
+  catalogStorePath = null,
+  enrollmentTokenTtlMs = DEFAULT_ENROLLMENT_TOKEN_TTL_MS,
   heartbeatDegradedMs = 15000,
-  heartbeatOfflineMs = 30000
+  heartbeatOfflineMs = 30000,
+  getNow = null
 } = {}) {
+  const readNowMs = () => {
+    if (typeof getNow === "function") {
+      const value = Number(getNow());
+      if (Number.isFinite(value)) {
+        return value;
+      }
+    }
+    return Date.now();
+  };
+  const nowIsoFromClock = () => new Date(readNowMs()).toISOString();
+
+  const safeEnrollmentTokenTtlMs = Number.isSafeInteger(enrollmentTokenTtlMs) && enrollmentTokenTtlMs > 0
+    ? enrollmentTokenTtlMs
+    : DEFAULT_ENROLLMENT_TOKEN_TTL_MS;
   const hostRecords = new Map();
   const enrollmentTokens = new Map();
   const hostSessionTokens = new Map();
   const jobRoutes = new Map();
+  const runCatalog = createRunCatalog({ catalogStorePath });
+
+  for (const entry of runCatalog.list()) {
+    if (typeof entry.jobId === "string" && typeof entry.hostId === "string") {
+      jobRoutes.set(entry.jobId, entry.hostId);
+    }
+  }
 
   const hostHandlers = new Map();
   const configuredHosts = new Set(Object.keys(hosts));
@@ -305,11 +718,14 @@ export function createFederationApiHandler({
       getRuntimeStatus: config.getRuntimeStatus,
       getHostCapabilities: config.getHostCapabilities,
       getDelegationPolicy: config.getDelegationPolicy,
-      getMobileConfig: config.getMobileConfig
+      getMobileConfig: config.getMobileConfig,
+      getWorkflowStatus: config.getWorkflowStatus,
+      validateWorkflowPreflight: config.validateWorkflowPreflight,
+      getWorkflowStartDefaults: config.getWorkflowStartDefaults
     }));
   }
 
-  const refreshHostHeartbeat = (record, nowMs = Date.now()) => {
+  const refreshHostHeartbeat = (record, nowMs = readNowMs()) => {
     if (record.auth.status !== "enrolled") {
       record.heartbeat.status = "offline";
       return;
@@ -360,18 +776,118 @@ export function createFederationApiHandler({
       return routed;
     }
 
+    const catalogEntry = runCatalog.get(jobId);
+    if (catalogEntry?.hostId) {
+      jobRoutes.set(jobId, catalogEntry.hostId);
+      return catalogEntry.hostId;
+    }
+
     for (const [hostId, handler] of hostHandlers.entries()) {
       const response = await invokeHandler(handler, {
         method: "GET",
         url: `/api/jobs/${encodeURIComponent(jobId)}`
       });
       if (response.statusCode === 200 && response.json?.job?.jobId === jobId) {
+        runCatalog.upsertFromJob(response.json.job, {
+          hostId,
+          source: {
+            kind: "live-discovery"
+          }
+        });
         jobRoutes.set(jobId, hostId);
         return hostId;
       }
     }
 
     throw new RuntimeError("JOB_NOT_FOUND", `Job not found: ${jobId}`);
+  };
+
+  const upsertCatalogFromResponse = (response, { hostId, source = null } = {}) => {
+    const job = response?.json?.job;
+    if (!job || typeof job !== "object") {
+      return null;
+    }
+    const resolvedHostId = hostId || response?.json?.hostId || job.hostId || null;
+    const entry = runCatalog.upsertFromJob(job, {
+      hostId: resolvedHostId,
+      source
+    });
+    if (entry?.jobId && entry?.hostId) {
+      jobRoutes.set(entry.jobId, entry.hostId);
+    }
+    return entry;
+  };
+
+  const requireCatalogJob = async (jobId) => {
+    const existing = runCatalog.get(jobId);
+    if (existing?.job) {
+      return existing;
+    }
+
+    const hostId = await resolveHostForJob(jobId);
+    const response = await invokeHandler(hostHandlers.get(hostId), {
+      method: "GET",
+      url: `/api/jobs/${encodeURIComponent(jobId)}`
+    });
+    if (response.statusCode !== 200 || !response.json?.job) {
+      throw new RuntimeError("JOB_NOT_FOUND", `Job not found: ${jobId}`);
+    }
+    const entry = upsertCatalogFromResponse(response, {
+      hostId,
+      source: {
+        kind: "catalog-refresh"
+      }
+    });
+    if (!entry) {
+      throw new RuntimeError("JOB_NOT_FOUND", `Job not found: ${jobId}`);
+    }
+    return entry;
+  };
+
+  const setEnrollmentToken = (hostId, token, nowMs = readNowMs()) => {
+    enrollmentTokens.set(hostId, {
+      token,
+      expiresAt: new Date(nowMs + safeEnrollmentTokenTtlMs).toISOString()
+    });
+  };
+
+  const readValidEnrollmentToken = (hostId, nowMs = readNowMs()) => {
+    const entry = enrollmentTokens.get(hostId);
+    if (!entry) {
+      return null;
+    }
+    const expiresAtMs = Date.parse(entry.expiresAt);
+    if (!Number.isFinite(expiresAtMs) || expiresAtMs <= nowMs) {
+      enrollmentTokens.delete(hostId);
+      return null;
+    }
+    return entry.token;
+  };
+
+  const assertControlPlaneAuthorized = async (req, context) => {
+    if (typeof verifyControlPlaneToken !== "function") {
+      return;
+    }
+
+    try {
+      const decision = await verifyControlPlaneToken({
+        req,
+        headers: req.headers || {},
+        method: req.method,
+        path: context?.path || req.url || "",
+        action: context?.action || null
+      });
+      if (decision === false) {
+        throw new RuntimeError("CONTROL_PLANE_UNAUTHORIZED", "Control-plane auth rejected request");
+      }
+    } catch (error) {
+      if (error instanceof RuntimeError) {
+        throw error;
+      }
+      throw new RuntimeError("CONTROL_PLANE_FORBIDDEN", "Control-plane auth check failed", {
+        cause: error?.message || "auth-check-failed"
+      });
+    }
   };
 
   return async function handler(req, res) {
@@ -395,6 +911,10 @@ export function createFederationApiHandler({
       }
 
       if (req.method === "POST" && reqUrl.pathname === "/api/hosts/register") {
+        await assertControlPlaneAuthorized(req, {
+          path: reqUrl.pathname,
+          action: "host-register"
+        });
         const body = await readJsonBody(req);
         ensureHostId(body.hostId);
         const hostId = body.hostId;
@@ -402,18 +922,18 @@ export function createFederationApiHandler({
 
         let record = hostRecords.get(hostId);
         if (!record) {
-          record = createHostRecord({ hostId, displayName });
+          record = createHostRecord({ hostId, displayName, nowIsoFn: nowIsoFromClock });
           hostRecords.set(hostId, record);
         } else if (displayName) {
           record.displayName = displayName;
-          record.updatedAt = nowIso();
+          record.updatedAt = nowIsoFromClock();
         }
 
         const enrollmentToken = `enr_${randomBytes(16).toString("hex")}`;
-        enrollmentTokens.set(hostId, enrollmentToken);
+        setEnrollmentToken(hostId, enrollmentToken);
         record.auth.status = "pending";
         record.auth.tokenId = `tok_${randomBytes(6).toString("hex")}`;
-        record.updatedAt = nowIso();
+        record.updatedAt = nowIsoFromClock();
         refreshHostHeartbeat(record);
 
         return json(res, 201, {
@@ -435,12 +955,12 @@ export function createFederationApiHandler({
         const body = await readJsonBody(req);
         const record = requireHostRecord(hostId);
 
-        const expectedToken = enrollmentTokens.get(hostId);
+        const expectedToken = readValidEnrollmentToken(hostId);
         if (!expectedToken || body.enrollmentToken !== expectedToken) {
           throw new RuntimeError("HOST_UNAUTHORIZED", "Invalid enrollment token");
         }
 
-        const enrolledAt = nowIso();
+        const enrolledAt = nowIsoFromClock();
         record.auth.status = "enrolled";
         record.auth.tokenId = `tok_${randomBytes(6).toString("hex")}`;
         record.heartbeat.lastSeenAt = enrolledAt;
@@ -475,16 +995,19 @@ export function createFederationApiHandler({
           throw new RuntimeError("HOST_NOT_ENROLLED", `Host is not enrolled: ${hostId}`);
         }
 
+        if (Object.prototype.hasOwnProperty.call(body, "hostToken")) {
+          throw new RuntimeError("HOST_UNAUTHORIZED", "Heartbeat token must be provided via Authorization header");
+        }
         const tokenFromHeader = parseBearerToken(req.headers.authorization || "");
-        const suppliedToken = tokenFromHeader || body.hostToken || null;
+        const suppliedToken = tokenFromHeader || null;
         const expected = hostSessionTokens.get(hostId);
         if (!expected || suppliedToken !== expected) {
           throw new RuntimeError("HOST_UNAUTHORIZED", "Invalid host token for heartbeat");
         }
 
-        record.heartbeat.lastSeenAt = nowIso();
+        record.heartbeat.lastSeenAt = nowIsoFromClock();
         record.heartbeat.status = "online";
-        record.updatedAt = nowIso();
+        record.updatedAt = nowIsoFromClock();
 
         if (body.capabilities !== undefined) {
           record.capabilities = normalizeCapabilities(body.capabilities);
@@ -508,12 +1031,16 @@ export function createFederationApiHandler({
         parts[1] === "hosts" &&
         parts[3] === "revoke"
       ) {
+        await assertControlPlaneAuthorized(req, {
+          path: reqUrl.pathname,
+          action: "host-revoke"
+        });
         const hostId = parts[2];
         const record = requireHostRecord(hostId);
         record.auth.status = "revoked";
         record.auth.tokenId = null;
         record.heartbeat.status = "offline";
-        record.updatedAt = nowIso();
+        record.updatedAt = nowIsoFromClock();
         enrollmentTokens.delete(hostId);
         hostSessionTokens.delete(hostId);
 
@@ -547,6 +1074,10 @@ export function createFederationApiHandler({
       }
 
       if (req.method === "POST" && reqUrl.pathname === "/api/jobs") {
+        await assertControlPlaneAuthorized(req, {
+          path: reqUrl.pathname,
+          action: "job-dispatch"
+        });
         const body = await readJsonBody(req);
         ensureHostId(body.hostId);
         const targetHostId = body.hostId;
@@ -567,6 +1098,13 @@ export function createFederationApiHandler({
         const job = response.json?.job || null;
         if (job?.jobId) {
           jobRoutes.set(job.jobId, targetHostId);
+          runCatalog.upsertFromJob(job, {
+            hostId: targetHostId,
+            source: {
+              kind: "dispatch",
+              parentJobId: null
+            }
+          });
         }
 
         return json(res, 201, {
@@ -577,9 +1115,8 @@ export function createFederationApiHandler({
       }
 
       if (req.method === "GET" && reqUrl.pathname === "/api/jobs") {
-        const queryHostId = reqUrl.searchParams.get("hostId");
-        const targetHostIds = queryHostId ? [queryHostId] : [...hostHandlers.keys()];
-        const jobs = [];
+        const query = parseRunCatalogQuery(reqUrl);
+        const targetHostIds = query.hostId ? [query.hostId] : [...hostHandlers.keys()];
 
         for (const hostId of targetHostIds) {
           if (!hostHandlers.has(hostId)) {
@@ -588,36 +1125,82 @@ export function createFederationApiHandler({
 
           const response = await invokeHandler(hostHandlers.get(hostId), {
             method: "GET",
-            url: `/api/jobs${reqUrl.search}`
+            url: "/api/jobs?limit=500&offset=0"
           });
           if (response.statusCode !== 200 || !Array.isArray(response.json?.jobs)) {
             continue;
           }
 
           for (const job of response.json.jobs) {
-            jobs.push(job);
+            runCatalog.upsertFromJob(job, {
+              hostId,
+              source: {
+                kind: "live-sync",
+                parentJobId: null
+              }
+            });
             if (job?.jobId) {
               jobRoutes.set(job.jobId, hostId);
             }
           }
         }
 
+        const filtered = filterCatalogEntries(runCatalog.list(), query);
+
         return json(res, 200, {
           ok: true,
-          jobs
+          jobs: filtered.jobs,
+          catalog: filtered.catalog,
+          pagination: filtered.pagination,
+          filters: filtered.filters
         });
       }
 
       if (req.method === "GET" && parts.length === 3 && parts[0] === "api" && parts[1] === "jobs") {
         const jobId = parts[2];
         const hostId = await resolveHostForJob(jobId);
+
+        if (!hostHandlers.has(hostId)) {
+          const entry = runCatalog.get(jobId);
+          if (entry?.job) {
+            return json(res, 200, {
+              ok: true,
+              hostId,
+              job: entry.job,
+              catalog: entry
+            });
+          }
+          throw new RuntimeError("HOST_NOT_READY", `No runtime bound for host: ${hostId}`);
+        }
+
         const response = await invokeHandler(hostHandlers.get(hostId), {
           method: "GET",
           url: `/api/jobs/${encodeURIComponent(jobId)}`
         });
+        if (response.statusCode === 200) {
+          upsertCatalogFromResponse(response, {
+            hostId,
+            source: {
+              kind: "live-read",
+              parentJobId: null
+            }
+          });
+        }
+        if (response.statusCode === 404) {
+          const entry = runCatalog.get(jobId);
+          if (entry?.job) {
+            return json(res, 200, {
+              ok: true,
+              hostId,
+              job: entry.job,
+              catalog: entry
+            });
+          }
+        }
         return json(res, response.statusCode, {
           hostId,
-          ...(response.json || { ok: false })
+          ...(response.json || { ok: false }),
+          catalog: runCatalog.get(jobId)
         });
       }
 
@@ -628,6 +1211,10 @@ export function createFederationApiHandler({
         parts[1] === "jobs" &&
         ["start", "interrupt", "retry"].includes(parts[3])
       ) {
+        await assertControlPlaneAuthorized(req, {
+          path: reqUrl.pathname,
+          action: `job-${parts[3]}`
+        });
         const jobId = parts[2];
         const action = parts[3];
         const body = await readJsonBody(req);
@@ -648,8 +1235,153 @@ export function createFederationApiHandler({
           url: `/api/jobs/${encodeURIComponent(jobId)}/${action}`,
           body: JSON.stringify(body || {})
         });
+        if (response.statusCode < 400) {
+          upsertCatalogFromResponse(response, {
+            hostId,
+            source: {
+              kind: action,
+              parentJobId: jobId
+            }
+          });
+        }
         return json(res, response.statusCode, {
           hostId,
+          ...(response.json || { ok: false })
+        });
+      }
+
+      if (
+        req.method === "POST" &&
+        parts.length === 4 &&
+        parts[0] === "api" &&
+        parts[1] === "jobs" &&
+        parts[3] === "rerun"
+      ) {
+        await assertControlPlaneAuthorized(req, {
+          path: reqUrl.pathname,
+          action: "job-rerun"
+        });
+        const jobId = parts[2];
+        const body = await readJsonBody(req);
+        const hostId = await resolveHostForJob(jobId);
+        requireHostAvailableForDispatch(hostId);
+
+        const retryPayload = {
+          startNow: body.startNow !== false,
+          startParams: body.startParams && typeof body.startParams === "object" && !Array.isArray(body.startParams)
+            ? body.startParams
+            : {}
+        };
+        const retryResponse = await invokeHandler(hostHandlers.get(hostId), {
+          method: "POST",
+          url: `/api/jobs/${encodeURIComponent(jobId)}/retry`,
+          body: JSON.stringify(retryPayload)
+        });
+
+        if (retryResponse.statusCode < 400) {
+          upsertCatalogFromResponse(retryResponse, {
+            hostId,
+            source: {
+              kind: "rerun",
+              parentJobId: jobId
+            }
+          });
+          return json(res, retryResponse.statusCode, {
+            ok: true,
+            hostId,
+            replayMode: "rerun",
+            ...(retryResponse.json || { ok: false })
+          });
+        }
+
+        const shouldFallbackToClone = body.cloneIfMissing !== false;
+        if (!shouldFallbackToClone || retryResponse.json?.error?.code !== "JOB_NOT_FOUND") {
+          return json(res, retryResponse.statusCode, {
+            hostId,
+            ...(retryResponse.json || { ok: false })
+          });
+        }
+
+        const sourceEntry = await requireCatalogJob(jobId);
+        const clonePayload = buildClonePayloadFromCatalogEntry(sourceEntry, {
+          jobId: body.jobId,
+          startNow: retryPayload.startNow,
+          startParams: retryPayload.startParams
+        });
+        const cloneResponse = await invokeHandler(hostHandlers.get(hostId), {
+          method: "POST",
+          url: "/api/intake",
+          body: JSON.stringify(clonePayload)
+        });
+        if (cloneResponse.statusCode >= 400) {
+          return json(res, cloneResponse.statusCode, {
+            hostId,
+            ...(cloneResponse.json || { ok: false })
+          });
+        }
+        upsertCatalogFromResponse(cloneResponse, {
+          hostId,
+          source: {
+            kind: "rerun-clone-fallback",
+            parentJobId: jobId
+          }
+        });
+        return json(res, 201, {
+          ok: true,
+          hostId,
+          replayMode: "rerun-clone-fallback",
+          sourceJobId: jobId,
+          ...(cloneResponse.json || { ok: false })
+        });
+      }
+
+      if (
+        req.method === "POST" &&
+        parts.length === 4 &&
+        parts[0] === "api" &&
+        parts[1] === "jobs" &&
+        parts[3] === "clone"
+      ) {
+        await assertControlPlaneAuthorized(req, {
+          path: reqUrl.pathname,
+          action: "job-clone"
+        });
+        const sourceJobId = parts[2];
+        const body = await readJsonBody(req);
+        const sourceEntry = await requireCatalogJob(sourceJobId);
+        const targetHostId = body.hostId || sourceEntry.hostId;
+        ensureHostId(targetHostId);
+        requireHostAvailableForDispatch(targetHostId);
+
+        const clonePayload = buildClonePayloadFromCatalogEntry(sourceEntry, {
+          jobId: body.jobId,
+          startNow: body.startNow === true,
+          startParams: body.startParams
+        });
+        const response = await invokeHandler(hostHandlers.get(targetHostId), {
+          method: "POST",
+          url: "/api/intake",
+          body: JSON.stringify(clonePayload)
+        });
+        if (response.statusCode >= 400) {
+          return json(res, response.statusCode, {
+            hostId: targetHostId,
+            ...(response.json || { ok: false })
+          });
+        }
+
+        const entry = upsertCatalogFromResponse(response, {
+          hostId: targetHostId,
+          source: {
+            kind: "clone",
+            parentJobId: sourceJobId
+          }
+        });
+        return json(res, 201, {
+          ok: true,
+          hostId: targetHostId,
+          sourceJobId,
+          clonedJobId: entry?.jobId || response.json?.job?.jobId || null,
           ...(response.json || { ok: false })
         });
       }
@@ -661,6 +1393,10 @@ export function createFederationApiHandler({
         parts[1] === "approvals" &&
         ["approve", "reject"].includes(parts[3])
       ) {
+        await assertControlPlaneAuthorized(req, {
+          path: reqUrl.pathname,
+          action: `approval-${parts[3]}`
+        });
         const requestId = parts[2];
         const body = await readJsonBody(req);
         ensureHostId(body.hostId);
@@ -690,6 +1426,35 @@ export function createFederationApiHandler({
           method: "GET",
           url: `/api/jobs/${encodeURIComponent(jobId)}/${parts[3]}`
         });
+
+        if (parts[3] === "live" && response.statusCode === 200) {
+          upsertCatalogFromResponse(response, {
+            hostId,
+            source: {
+              kind: "live-read",
+              parentJobId: null
+            }
+          });
+        } else if (parts[3] === "result" && response.statusCode === 200) {
+          const existing = runCatalog.get(jobId);
+          if (existing?.job) {
+            const patchedJob = {
+              ...existing.job,
+              resultSummary: response.json?.result?.resultSummary ?? existing.job.resultSummary ?? null,
+              artifactPaths: Array.isArray(response.json?.result?.artifactPaths)
+                ? response.json.result.artifactPaths
+                : existing.job.artifactPaths
+            };
+            runCatalog.upsertFromJob(patchedJob, {
+              hostId,
+              source: {
+                kind: "result-read",
+                parentJobId: null
+              }
+            });
+          }
+        }
+
         return json(res, response.statusCode, {
           hostId,
           ...(response.json || { ok: false })
@@ -697,10 +1462,17 @@ export function createFederationApiHandler({
       }
 
       if (req.method === "POST" && reqUrl.pathname === "/api/hosts/reconcile") {
+        await assertControlPlaneAuthorized(req, {
+          path: reqUrl.pathname,
+          action: "hosts-reconcile"
+        });
         const transitions = [];
         for (const [jobId, hostId] of jobRoutes.entries()) {
           const hostRecord = hostRecords.get(hostId);
           if (!hostRecord) {
+            continue;
+          }
+          if (!hostHandlers.has(hostId)) {
             continue;
           }
           refreshHostHeartbeat(hostRecord);

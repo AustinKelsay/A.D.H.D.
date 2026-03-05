@@ -62,6 +62,9 @@ function statusForErrorCode(code) {
   if (code === "JOB_EXISTS") {
     return 409;
   }
+  if (typeof code === "string" && code.startsWith("WORKFLOW_")) {
+    return 503;
+  }
   return 500;
 }
 
@@ -437,6 +440,148 @@ function runtimeStatus(options) {
   };
 }
 
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function workflowPreflight(options) {
+  if (typeof options.validateWorkflowPreflight !== "function") {
+    return { ok: true };
+  }
+
+  const result = options.validateWorkflowPreflight();
+  if (result === undefined || result === null) {
+    return { ok: true };
+  }
+  if (!isPlainObject(result)) {
+    throw new RuntimeError("INVALID_CONFIG", "Workflow preflight hook must return an object");
+  }
+
+  if (result.ok === false) {
+    const sourceError = isPlainObject(result.error) ? result.error : {};
+    const code = typeof sourceError.code === "string" && sourceError.code.trim()
+      ? sourceError.code.trim()
+      : "WORKFLOW_UNAVAILABLE";
+    const message = typeof sourceError.message === "string" && sourceError.message.trim()
+      ? sourceError.message.trim()
+      : "Workflow preflight failed";
+    const details = sourceError.details ?? null;
+    return {
+      ok: false,
+      error: {
+        code,
+        message,
+        details
+      }
+    };
+  }
+
+  return { ok: true };
+}
+
+function ensureWorkflowReady(options) {
+  const preflight = workflowPreflight(options);
+  if (!preflight.ok) {
+    throw new RuntimeError(
+      preflight.error.code,
+      preflight.error.message,
+      preflight.error.details ?? undefined
+    );
+  }
+}
+
+function workflowStatus(options) {
+  const enabled = typeof options.getWorkflowStatus === "function"
+    || typeof options.validateWorkflowPreflight === "function";
+  if (!enabled) {
+    return {
+      enabled: false,
+      status: null,
+      preflight: { ok: true }
+    };
+  }
+
+  const status = typeof options.getWorkflowStatus === "function"
+    ? options.getWorkflowStatus()
+    : null;
+  const preflight = workflowPreflight(options);
+  return {
+    enabled: true,
+    status,
+    preflight
+  };
+}
+
+function workflowStartDefaults(options) {
+  if (typeof options.getWorkflowStartDefaults !== "function") {
+    return {};
+  }
+
+  const defaults = options.getWorkflowStartDefaults();
+  if (defaults === undefined || defaults === null) {
+    return {};
+  }
+  if (!isPlainObject(defaults)) {
+    throw new RuntimeError("INVALID_CONFIG", "Workflow start defaults hook must return an object");
+  }
+
+  const threadStartParams = defaults.threadStartParams;
+  const turnStartParams = defaults.turnStartParams;
+  if (threadStartParams !== undefined && threadStartParams !== null && !isPlainObject(threadStartParams)) {
+    throw new RuntimeError("INVALID_CONFIG", "Workflow threadStartParams defaults must be an object");
+  }
+  if (turnStartParams !== undefined && turnStartParams !== null && !isPlainObject(turnStartParams)) {
+    throw new RuntimeError("INVALID_CONFIG", "Workflow turnStartParams defaults must be an object");
+  }
+
+  return {
+    threadStartParams: threadStartParams ? { ...threadStartParams } : {},
+    turnStartParams: turnStartParams ? { ...turnStartParams } : {}
+  };
+}
+
+function resolveStartParams(options, requested) {
+  if (requested !== undefined && requested !== null && !isPlainObject(requested)) {
+    throw new RuntimeError("INVALID_INPUT", "start parameters must be an object");
+  }
+
+  const requestedParams = requested || {};
+  if (
+    requestedParams.threadStartParams !== undefined &&
+    requestedParams.threadStartParams !== null &&
+    !isPlainObject(requestedParams.threadStartParams)
+  ) {
+    throw new RuntimeError("INVALID_INPUT", "threadStartParams must be an object");
+  }
+  if (
+    requestedParams.turnStartParams !== undefined &&
+    requestedParams.turnStartParams !== null &&
+    !isPlainObject(requestedParams.turnStartParams)
+  ) {
+    throw new RuntimeError("INVALID_INPUT", "turnStartParams must be an object");
+  }
+
+  const defaults = workflowStartDefaults(options);
+  const hasDefaults =
+    isPlainObject(defaults.threadStartParams) ||
+    isPlainObject(defaults.turnStartParams);
+  if (!hasDefaults) {
+    return requestedParams;
+  }
+
+  return {
+    ...requestedParams,
+    threadStartParams: {
+      ...(defaults.threadStartParams || {}),
+      ...(requestedParams.threadStartParams || {})
+    },
+    turnStartParams: {
+      ...(defaults.turnStartParams || {}),
+      ...(requestedParams.turnStartParams || {})
+    }
+  };
+}
+
 function hostCapabilities(options) {
   if (typeof options.getHostCapabilities === "function") {
     return options.getHostCapabilities();
@@ -656,7 +801,10 @@ export function createHostApiHandler({
   getRuntimeStatus,
   getHostCapabilities,
   getDelegationPolicy,
-  getMobileConfig
+  getMobileConfig,
+  getWorkflowStatus,
+  validateWorkflowPreflight,
+  getWorkflowStartDefaults
 } = {}) {
   if (!runtime) {
     throw new RuntimeError("MISSING_RUNTIME", "createHostApiHandler requires runtime");
@@ -667,7 +815,10 @@ export function createHostApiHandler({
     getRuntimeStatus,
     getHostCapabilities,
     getDelegationPolicy,
-    getMobileConfig
+    getMobileConfig,
+    getWorkflowStatus,
+    validateWorkflowPreflight,
+    getWorkflowStartDefaults
   };
   const mobile = new MobileControlManager(mobileConfig(options));
 
@@ -733,6 +884,7 @@ export function createHostApiHandler({
           hostId,
           runtime: runtimeStatus(options),
           delegationPolicy: mergeDelegationPolicy(hostPolicy, {}),
+          workflow: workflowStatus(options),
           mobile: {
             enabled: mobile.enabled
           }
@@ -866,6 +1018,7 @@ export function createHostApiHandler({
       }
 
       if (req.method === "POST" && parts.length === 3 && parts[0] === "api" && parts[1] === "intent" && parts[2] === "plan") {
+        ensureWorkflowReady(options);
         const body = await readJsonBody(req);
         const { intake, intent, plan, promptPackage } = resolveIntentAndPlan(body, options);
 
@@ -882,6 +1035,7 @@ export function createHostApiHandler({
       }
 
       if (req.method === "POST" && parts.length === 2 && parts[0] === "api" && parts[1] === "jobs") {
+        ensureWorkflowReady(options);
         const body = await readJsonBody(req);
         const { intake, intent, plan, promptPackage } = resolveIntentAndPlan(body, options);
 
@@ -907,6 +1061,7 @@ export function createHostApiHandler({
       }
 
       if (req.method === "POST" && parts.length === 2 && parts[0] === "api" && parts[1] === "intake") {
+        ensureWorkflowReady(options);
         const body = await readJsonBody(req);
         const { intake, intent, plan, promptPackage } = resolveIntentAndPlan(body, options);
 
@@ -933,7 +1088,8 @@ export function createHostApiHandler({
         });
 
         if (body.autoStart === true) {
-          job = await runtime.startJob(job.jobId, body.startParams || {});
+          const startParams = resolveStartParams(options, body.startParams || {});
+          job = await runtime.startJob(job.jobId, startParams);
         }
 
         return json(res, 201, {
@@ -1025,6 +1181,7 @@ export function createHostApiHandler({
       }
 
       if (req.method === "POST" && parts.length === 4 && parts[0] === "api" && parts[1] === "jobs" && parts[3] === "start") {
+        ensureWorkflowReady(options);
         if (!isRuntimeReady(options)) {
           return json(res, 503, {
             ok: false,
@@ -1037,7 +1194,8 @@ export function createHostApiHandler({
         }
 
         const body = await readJsonBody(req);
-        const job = await runtime.startJob(parts[2], body);
+        const startParams = resolveStartParams(options, body);
+        const job = await runtime.startJob(parts[2], startParams);
         return json(res, 200, { ok: true, job });
       }
 
@@ -1049,6 +1207,9 @@ export function createHostApiHandler({
         parts[3] === "retry"
       ) {
         const body = await readJsonBody(req);
+        if (body.startNow === true) {
+          ensureWorkflowReady(options);
+        }
         if (body.startNow === true && !isRuntimeReady(options)) {
           return json(res, 503, {
             ok: false,
@@ -1062,7 +1223,8 @@ export function createHostApiHandler({
 
         let job = await runtime.retryJob(parts[2]);
         if (body.startNow === true) {
-          job = await runtime.startJob(parts[2], body.startParams || {});
+          const startParams = resolveStartParams(options, body.startParams || {});
+          job = await runtime.startJob(parts[2], startParams);
         }
 
         return json(res, 200, {

@@ -8,6 +8,20 @@ Quick operational commands for single-host MVP flows: intake, live controls, pag
   - `npm run host-api:start`
 - Default local endpoint:
   - `http://127.0.0.1:8787`
+- Optional workflow override:
+  - `ADHD_WORKFLOW_PATH=/abs/path/to/WORKFLOW.md npm run host-api:start`
+
+## 0) Host Health And Workflow Preflight
+
+```bash
+curl -sS http://127.0.0.1:8787/health
+```
+
+Look for:
+- `runtime.ready`
+- `workflow.preflight.ok`
+
+If workflow preflight fails, plan/create/start routes fail with `503` and `error.code` prefixed `WORKFLOW_`.
 
 ## 1) Unified Intake
 
@@ -56,9 +70,16 @@ curl -sS -X POST http://127.0.0.1:8787/api/intake \
   -H 'content-type: application/json' \
   -d '{
     "inputText": "Implement feature X",
-    "autoStart": true
+    "autoStart": true,
+    "startParams": {
+      "turnStartParams": {
+        "temperature": 0
+      }
+    }
   }'
 ```
+
+`startParams` are merged with workflow defaults (`threadStartParams`, `turnStartParams`) from `WORKFLOW.md`; request payload wins on conflicts.
 
 ## 2) Job Listing With Pagination/Filtering
 

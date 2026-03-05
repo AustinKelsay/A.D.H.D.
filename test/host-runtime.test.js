@@ -143,3 +143,30 @@ test("retry moves terminal job back to queued and clears protocol refs", async (
   assert.equal(retried.timestamps.endedAt, null);
   assert.ok(retried.timestamps.updatedAt);
 });
+
+test("getJobResult returns stable defaults and cloned artifact paths", () => {
+  const adapter = new FakeAdapter();
+  const runtime = new HostRuntime({ adapter, hostId: "h_test_result_shape" });
+
+  runtime.createJob({
+    jobId: "j_test_result_shape",
+    inputText: "Collect results"
+  });
+
+  const pending = runtime.getJobResult("j_test_result_shape");
+  assert.equal(pending.resultSummary, "");
+  assert.deepEqual(pending.artifactPaths, []);
+
+  runtime.store.setResult("j_test_result_shape", {
+    resultSummary: "Done",
+    artifactPaths: ["artifacts/summary.md"]
+  });
+
+  const first = runtime.getJobResult("j_test_result_shape");
+  assert.equal(first.resultSummary, "Done");
+  assert.deepEqual(first.artifactPaths, ["artifacts/summary.md"]);
+  first.artifactPaths.push("artifacts/extra.md");
+
+  const second = runtime.getJobResult("j_test_result_shape");
+  assert.deepEqual(second.artifactPaths, ["artifacts/summary.md"]);
+});

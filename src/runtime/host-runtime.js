@@ -210,8 +210,8 @@ export class HostRuntime extends EventEmitter {
   getJobResult(jobId) {
     const job = this.requireJob(jobId);
     return {
-      resultSummary: job.resultSummary,
-      artifactPaths: job.artifactPaths
+      resultSummary: typeof job.resultSummary === "string" ? job.resultSummary : "",
+      artifactPaths: Array.isArray(job.artifactPaths) ? job.artifactPaths.slice() : []
     };
   }
 
