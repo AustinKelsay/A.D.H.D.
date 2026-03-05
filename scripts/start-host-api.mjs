@@ -11,6 +11,11 @@ import {
 } from "../src/runtime/index.js";
 import { createHostApiHandler } from "../src/server/host-api.js";
 import { WorkflowStore } from "../src/workflow/index.js";
+import {
+  emitStructuredEvent,
+  resolveCodexCommand,
+  resolveDelegationPolicy
+} from "./shared/workflow-startup-utils.mjs";
 
 function formatRawEnvValue(value) {
   if (value === undefined) {
@@ -70,59 +75,6 @@ function envPositiveInt(name, defaultValue) {
   return parsed;
 }
 
-function parseCommandTokens(command) {
-  if (typeof command !== "string" || !command.trim()) {
-    return [];
-  }
-
-  const parts = command.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) || [];
-  return parts
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .map((part) => {
-      if (
-        (part.startsWith("\"") && part.endsWith("\"")) ||
-        (part.startsWith("'") && part.endsWith("'"))
-      ) {
-        return part.slice(1, -1);
-      }
-      return part;
-    });
-}
-
-function resolveCodexCommand(command, fallbackBin = "codex") {
-  const tokens = parseCommandTokens(command);
-  if (tokens.length === 0) {
-    return {
-      codexBin: fallbackBin,
-      extraArgs: []
-    };
-  }
-
-  const [codexBin, ...rawArgs] = tokens;
-  const extraArgs = [...rawArgs];
-  if (extraArgs[0] === "app-server") {
-    extraArgs.shift();
-  }
-
-  return {
-    codexBin,
-    extraArgs
-  };
-}
-
-function resolveDelegationPolicy(workflowStore, envDefaults) {
-  const current = workflowStore.current();
-  if (!current.ok) {
-    return { ...envDefaults };
-  }
-
-  return {
-    ...envDefaults,
-    ...workflowStore.getDelegationPolicy()
-  };
-}
-
 async function main() {
   const hostId = process.env.ADHD_HOST_ID || "h_local";
   const port = Number.parseInt(process.env.PORT || "8787", 10);
@@ -132,7 +84,7 @@ async function main() {
     repoRoot: process.cwd(),
     cwd: hostCwd
   });
-  const workflowBoot = workflowStore.refresh();
+  const workflowBoot = await workflowStore.refreshAsync();
   if (!workflowBoot.ok && workflowBoot.error) {
     process.stderr.write(
       `[workflow] ${workflowBoot.error.code}: ${workflowBoot.error.message}\n`
@@ -217,7 +169,7 @@ async function main() {
   }
 
   runtime.on("approvalRequested", (event) => {
-    process.stdout.write(`${JSON.stringify({ type: "approvalRequested", ...event })}\n`);
+    emitStructuredEvent("approvalRequested", event);
   });
 
   const handler = createHostApiHandler({
@@ -230,7 +182,9 @@ async function main() {
     getMobileConfig: () => ({ ...mobileRuntimeConfig }),
     getWorkflowStatus: () => workflowStore.status(),
     validateWorkflowPreflight: () => workflowStore.preflight(),
-    getWorkflowStartDefaults: () => workflowStore.getStartDefaults()
+    getWorkflowStartDefaults: () => workflowStore.getStartDefaults(),
+    refreshWorkflow: () => workflowStore.refreshAsync(),
+    logEvent: (event) => emitStructuredEvent("hostApiTelemetry", event)
   });
 
   const server = http.createServer((req, res) => {

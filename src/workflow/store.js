@@ -24,6 +24,10 @@ function clone(value) {
   return structuredClone(value);
 }
 
+function nowIso() {
+  return new Date().toISOString();
+}
+
 function toSha1(text) {
   return createHash("sha1").update(text).digest("hex");
 }
@@ -185,6 +189,10 @@ function validateWorkflowConfig(config = {}) {
   const codex = config.codex && typeof config.codex === "object" && !Array.isArray(config.codex)
     ? config.codex
     : {};
+  const hasCodexConfig = Object.keys(codex).length > 0;
+  if (!hasCodexConfig) {
+    return { ok: true };
+  }
 
   const command = codex.command;
   if (typeof command !== "string" || !command.trim()) {
@@ -248,6 +256,19 @@ export class WorkflowStore {
     this.active = null;
     this.lastError = null;
     this.lastHash = null;
+    this.refreshInFlight = null;
+    this.nextAutoRefreshAtMs = 0;
+    this.autoRefreshIntervalMs = 500;
+    this.reloadTelemetry = {
+      attempts: 0,
+      successes: 0,
+      failures: 0,
+      unchanged: 0,
+      lastAttemptAt: null,
+      lastSuccessAt: null,
+      lastFailureAt: null,
+      lastFailure: null
+    };
     this.lastPath = resolveCandidatePath({
       workflowPath: this.explicitWorkflowPath,
       repoRoot: this.repoRoot,
@@ -263,42 +284,25 @@ export class WorkflowStore {
     });
   }
 
-  refresh() {
-    const workflowPath = this.getWorkflowPath();
-    this.lastPath = workflowPath;
-
-    let content;
-    try {
-      content = fs.readFileSync(workflowPath, "utf8");
-    } catch (error) {
-      this.lastError = buildLoadError(error, workflowPath);
-      return {
-        ok: false,
-        error: clone(this.lastError),
-        active: this.active ? clone(this.active) : null
-      };
+  async refreshAsync() {
+    if (this.refreshInFlight) {
+      return this.refreshInFlight;
     }
 
-    const contentHash = toSha1(content);
-    if (this.active && this.lastHash === contentHash) {
-      return {
-        ok: true,
-        changed: false,
-        workflow: clone(this.active)
-      };
-    }
+    this.refreshInFlight = (async () => {
+      this.reloadTelemetry.attempts += 1;
+      this.reloadTelemetry.lastAttemptAt = nowIso();
+      const workflowPath = this.getWorkflowPath();
+      this.lastPath = workflowPath;
 
-    try {
-      const parsed = parseWorkflowText(content);
-      const validation = validateWorkflowConfig(parsed.config);
-      if (!validation.ok) {
-        this.lastError = {
-          ...validation,
-          details: {
-            ...validation.details,
-            path: workflowPath
-          }
-        };
+      let content;
+      try {
+        content = await fs.promises.readFile(workflowPath, "utf8");
+      } catch (error) {
+        this.lastError = buildLoadError(error, workflowPath);
+        this.reloadTelemetry.failures += 1;
+        this.reloadTelemetry.lastFailureAt = nowIso();
+        this.reloadTelemetry.lastFailure = clone(this.lastError);
         return {
           ok: false,
           error: clone(this.lastError),
@@ -306,44 +310,102 @@ export class WorkflowStore {
         };
       }
 
-      this.active = {
-        path: workflowPath,
-        loadedAt: new Date().toISOString(),
-        contentHash,
-        config: parsed.config,
-        promptTemplate: parsed.promptTemplate
-      };
-      this.lastHash = contentHash;
-      this.lastError = null;
+      const contentHash = toSha1(content);
+      if (this.active && this.lastHash === contentHash) {
+        this.lastError = null;
+        this.reloadTelemetry.successes += 1;
+        this.reloadTelemetry.unchanged += 1;
+        this.reloadTelemetry.lastSuccessAt = nowIso();
+        return {
+          ok: true,
+          changed: false,
+          workflow: clone(this.active)
+        };
+      }
 
-      return {
-        ok: true,
-        changed: true,
-        workflow: clone(this.active)
-      };
-    } catch (error) {
-      this.lastError = {
-        code: "WORKFLOW_PARSE_ERROR",
-        message: `Invalid workflow format: ${error?.message || "parse failure"}`,
-        details: {
-          path: workflowPath
+      try {
+        const parsed = parseWorkflowText(content);
+        const validation = validateWorkflowConfig(parsed.config);
+        if (!validation.ok) {
+          this.lastError = {
+            ...validation,
+            details: {
+              ...validation.details,
+              path: workflowPath
+            }
+          };
+          this.reloadTelemetry.failures += 1;
+          this.reloadTelemetry.lastFailureAt = nowIso();
+          this.reloadTelemetry.lastFailure = clone(this.lastError);
+          return {
+            ok: false,
+            error: clone(this.lastError),
+            active: this.active ? clone(this.active) : null
+          };
         }
-      };
-      return {
-        ok: false,
-        error: clone(this.lastError),
-        active: this.active ? clone(this.active) : null
-      };
+
+        this.active = {
+          path: workflowPath,
+          loadedAt: nowIso(),
+          contentHash,
+          config: parsed.config,
+          promptTemplate: parsed.promptTemplate
+        };
+        this.lastHash = contentHash;
+        this.lastError = null;
+        this.reloadTelemetry.successes += 1;
+        this.reloadTelemetry.lastSuccessAt = nowIso();
+
+        return {
+          ok: true,
+          changed: true,
+          workflow: clone(this.active)
+        };
+      } catch (error) {
+        this.lastError = {
+          code: "WORKFLOW_PARSE_ERROR",
+          message: `Invalid workflow format: ${error?.message || "parse failure"}`,
+          details: {
+            path: workflowPath
+          }
+        };
+        this.reloadTelemetry.failures += 1;
+        this.reloadTelemetry.lastFailureAt = nowIso();
+        this.reloadTelemetry.lastFailure = clone(this.lastError);
+        return {
+          ok: false,
+          error: clone(this.lastError),
+          active: this.active ? clone(this.active) : null
+        };
+      }
+    })()
+      .finally(() => {
+        this.refreshInFlight = null;
+      });
+
+    return this.refreshInFlight;
+  }
+
+  refresh() {
+    return this.refreshAsync();
+  }
+
+  triggerBackgroundRefresh() {
+    const nowMs = Date.now();
+    if (this.refreshInFlight || nowMs < this.nextAutoRefreshAtMs) {
+      return;
     }
+    this.nextAutoRefreshAtMs = nowMs + this.autoRefreshIntervalMs;
+    void this.refreshAsync();
   }
 
   current() {
-    const refreshed = this.refresh();
+    this.triggerBackgroundRefresh();
     if (this.active) {
       return {
         ok: true,
         workflow: clone(this.active),
-        stale: !refreshed.ok
+        stale: Boolean(this.lastError)
       };
     }
 
@@ -389,14 +451,16 @@ export class WorkflowStore {
   }
 
   status() {
-    this.refresh();
+    this.triggerBackgroundRefresh();
     return {
       path: this.lastPath,
       loaded: Boolean(this.active),
       loadedAt: this.active?.loadedAt || null,
       contentHash: this.active?.contentHash || null,
       usingLastKnownGood: Boolean(this.active && this.lastError),
-      lastError: this.lastError ? clone(this.lastError) : null
+      refreshing: Boolean(this.refreshInFlight),
+      lastError: this.lastError ? clone(this.lastError) : null,
+      telemetry: clone(this.reloadTelemetry)
     };
   }
 

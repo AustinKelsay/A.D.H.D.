@@ -10,17 +10,20 @@ Find, replay, and clone runs across hosts with durable host linkage.
 
 ## 1. Search Catalog
 ```bash
-curl -sS "http://127.0.0.1:8787/api/jobs?hostId=h_alpha01&state=completed&repo=alpha-app&from=<ISO_TIMESTAMP>&to=<ISO_TIMESTAMP>&limit=25&offset=0"
+curl -sS "http://127.0.0.1:8787/api/jobs?hostId=h_alpha01&state=completed&repo=alpha-app&from=<ISO_TIMESTAMP>&to=<ISO_TIMESTAMP>&limit=25&offset=0" \
+  -H "authorization: Bearer <CONTROL_PLANE_TOKEN>"
 ```
 
 ## 2. Inspect Run
 ```bash
-curl -sS "http://127.0.0.1:8787/api/jobs/j_example001"
+curl -sS "http://127.0.0.1:8787/api/jobs/j_example001" \
+  -H "authorization: Bearer <CONTROL_PLANE_TOKEN>"
 ```
 
 ## 3. Rerun Existing Job
 ```bash
 curl -sS -X POST "http://127.0.0.1:8787/api/jobs/j_example001/rerun" \
+  -H "authorization: Bearer <CONTROL_PLANE_TOKEN>" \
   -H "content-type: application/json" \
   -d '{"startNow": true}'
 ```
@@ -28,6 +31,7 @@ curl -sS -X POST "http://127.0.0.1:8787/api/jobs/j_example001/rerun" \
 ## 4. Clone Run Into New Job
 ```bash
 curl -sS -X POST "http://127.0.0.1:8787/api/jobs/j_example001/clone" \
+  -H "authorization: Bearer <CONTROL_PLANE_TOKEN>" \
   -H "content-type: application/json" \
   -d '{"jobId":"j_clone001","startNow":true}'
 ```

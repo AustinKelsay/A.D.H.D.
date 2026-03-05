@@ -3,22 +3,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { RuntimeError } from "../runtime/errors.js";
+import { ALLOWED_JOB_STATES } from "./job-state-constants.js";
 import { createHostApiHandler } from "./host-api.js";
 
 export const HOST_ID_PATTERN = /^h_[a-z0-9]{6,}$/;
-const ALLOWED_JOB_STATES = new Set([
-  "draft",
-  "queued",
-  "dispatching",
-  "planning",
-  "awaiting_approval",
-  "delegating",
-  "running",
-  "summarizing",
-  "completed",
-  "failed",
-  "cancelled"
-]);
 const NON_TERMINAL_STATES = new Set([
   "draft",
   "queued",
@@ -34,6 +22,12 @@ const DEFAULT_ENROLLMENT_TOKEN_TTL_MS = 10 * 60 * 1000;
 const DEFAULT_CATALOG_LIMIT = 50;
 const MAX_CATALOG_LIMIT = 500;
 const RUN_CATALOG_VERSION = "run-catalog.v1";
+const CATALOG_FLUSH_DEBOUNCE_MS = 25;
+const DEFAULT_JOB_ROUTE_CACHE_MAX_SIZE = 10000;
+const DEFAULT_JOB_ROUTE_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+const DEFAULT_JOB_ROUTE_CACHE_SWEEP_INTERVAL_MS = 60 * 1000;
+const MAX_HOST_SYNC_PAGES = 20;
+const ALLOWED_WORKFLOW_DRIFT_POLICIES = new Set(["warn", "block_dispatch"]);
 
 function nowIso() {
   return new Date().toISOString();
@@ -186,6 +180,10 @@ function createRunCatalog({ catalogStorePath = null } = {}) {
   const resolvedPath = typeof catalogStorePath === "string" && catalogStorePath.trim()
     ? path.resolve(catalogStorePath.trim())
     : null;
+  const canPersist = typeof resolvedPath === "string" && resolvedPath.length > 0;
+  let flushTimer = null;
+  let flushDirty = false;
+  let pendingFlush = null;
 
   const load = () => {
     if (!resolvedPath || !fs.existsSync(resolvedPath)) {
@@ -211,19 +209,62 @@ function createRunCatalog({ catalogStorePath = null } = {}) {
     }
   };
 
-  const flush = () => {
-    if (!resolvedPath) {
+  const flush = async () => {
+    if (!canPersist) {
       return;
     }
-    fs.mkdirSync(path.dirname(resolvedPath), { recursive: true });
+
     const tempPath = `${resolvedPath}.tmp`;
     const payload = {
       version: RUN_CATALOG_VERSION,
       updatedAt: nowIso(),
       entries: [...entries.values()]
     };
-    fs.writeFileSync(tempPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
-    fs.renameSync(tempPath, resolvedPath);
+
+    try {
+      await fs.promises.mkdir(path.dirname(resolvedPath), { recursive: true });
+      await fs.promises.writeFile(tempPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+      await fs.promises.rename(tempPath, resolvedPath);
+    } catch (error) {
+      console.error(
+        `[run-catalog] Failed to flush catalog at ${resolvedPath}: ${error?.message || "unknown error"}`
+      );
+    }
+  };
+
+  const scheduleFlush = () => {
+    if (!canPersist) {
+      return;
+    }
+
+    flushDirty = true;
+    if (flushTimer !== null || pendingFlush) {
+      return;
+    }
+
+    flushTimer = setTimeout(() => {
+      flushTimer = null;
+      pendingFlush = (async () => {
+        while (flushDirty) {
+          flushDirty = false;
+          await flush();
+        }
+      })()
+        .catch((error) => {
+          console.error(
+            `[run-catalog] Flush loop failed at ${resolvedPath}: ${error?.message || "unknown error"}`
+          );
+        })
+        .finally(() => {
+          pendingFlush = null;
+          if (flushDirty) {
+            scheduleFlush();
+          }
+        });
+    }, CATALOG_FLUSH_DEBOUNCE_MS);
+    if (typeof flushTimer.unref === "function") {
+      flushTimer.unref();
+    }
   };
 
   const upsert = (entry) => {
@@ -248,7 +289,7 @@ function createRunCatalog({ catalogStorePath = null } = {}) {
       : clone(entry);
 
     entries.set(merged.jobId, merged);
-    flush();
+    scheduleFlush();
     return clone(merged);
   };
 
@@ -320,9 +361,17 @@ function filterCatalogEntries(entries, query) {
   });
 
   filtered.sort((a, b) => {
-    const aMs = Date.parse(a.timestamps?.updatedAt || a.persistedAt || 0);
-    const bMs = Date.parse(b.timestamps?.updatedAt || b.persistedAt || 0);
-    return bMs - aMs;
+    const aRaw = a.timestamps?.updatedAt ?? a.persistedAt;
+    const bRaw = b.timestamps?.updatedAt ?? b.persistedAt;
+    const aMs = typeof aRaw === "string" && aRaw.trim()
+      ? Date.parse(aRaw)
+      : 0;
+    const bMs = typeof bRaw === "string" && bRaw.trim()
+      ? Date.parse(bRaw)
+      : 0;
+    const safeAMs = Number.isFinite(aMs) ? aMs : 0;
+    const safeBMs = Number.isFinite(bMs) ? bMs : 0;
+    return safeBMs - safeAMs;
   });
 
   const paged = filtered.slice(query.offset, query.offset + query.limit);
@@ -415,6 +464,54 @@ function normalizeCompatibility(input) {
     status: ["unknown", "compatible", "incompatible"].includes(status) ? status : "unknown",
     checkedAt,
     missingMethods
+  };
+}
+
+function normalizeWorkflowSnapshot(input, checkedAt = nowIso()) {
+  const base = {
+    status: "unknown",
+    contentHash: null,
+    loadedAt: null,
+    usingLastKnownGood: null,
+    lastErrorCode: null,
+    checkedAt
+  };
+
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return base;
+  }
+
+  let status = typeof input.status === "string" ? input.status.trim().toLowerCase() : "unknown";
+  if (!["unknown", "loaded", "stale", "unavailable"].includes(status)) {
+    if (input.loaded === true) {
+      status = input.usingLastKnownGood === true ? "stale" : "loaded";
+    } else if (input.loaded === false) {
+      status = "unavailable";
+    } else {
+      status = "unknown";
+    }
+  }
+
+  const contentHash = typeof input.contentHash === "string" && input.contentHash.trim()
+    ? input.contentHash.trim()
+    : null;
+  const loadedAt = typeof input.loadedAt === "string" ? input.loadedAt : null;
+  const usingLastKnownGood = typeof input.usingLastKnownGood === "boolean"
+    ? input.usingLastKnownGood
+    : null;
+  const lastErrorCode = typeof input.lastErrorCode === "string" && input.lastErrorCode.trim()
+    ? input.lastErrorCode.trim()
+    : typeof input.lastError?.code === "string" && input.lastError.code.trim()
+      ? input.lastError.code.trim()
+      : null;
+
+  return {
+    status,
+    contentHash,
+    loadedAt,
+    usingLastKnownGood,
+    lastErrorCode,
+    checkedAt: typeof input.checkedAt === "string" ? input.checkedAt : checkedAt
   };
 }
 
@@ -629,6 +726,9 @@ function statusForErrorCode(code) {
   if (code === "HOST_OFFLINE") {
     return 503;
   }
+  if (code === "HOST_WORKFLOW_DRIFT") {
+    return 409;
+  }
   if (code === "INVALID_PLAN") {
     return 422;
   }
@@ -660,6 +760,7 @@ function createHostRecord({ hostId, displayName = null, nowIsoFn = nowIso } = {}
       checkedAt: createdAt,
       missingMethods: []
     },
+    workflow: normalizeWorkflowSnapshot(null, createdAt),
     createdAt,
     updatedAt: createdAt
   };
@@ -669,6 +770,81 @@ function sanitizeHostRecord(record) {
   return structuredClone(record);
 }
 
+function createJobRouteCache({
+  maxSize = DEFAULT_JOB_ROUTE_CACHE_MAX_SIZE,
+  ttlMs = DEFAULT_JOB_ROUTE_CACHE_TTL_MS,
+  getNow = () => Date.now()
+} = {}) {
+  const entries = new Map();
+
+  const readNowMs = () => {
+    const value = Number(getNow());
+    if (Number.isFinite(value)) {
+      return value;
+    }
+    return Date.now();
+  };
+
+  const prune = (nowMs = readNowMs()) => {
+    for (const [jobId, entry] of entries.entries()) {
+      if (nowMs - entry.touchedAt > ttlMs) {
+        entries.delete(jobId);
+      }
+    }
+  };
+
+  const enforceMaxSize = () => {
+    while (entries.size > maxSize) {
+      const oldestKey = entries.keys().next().value;
+      if (oldestKey === undefined) {
+        break;
+      }
+      entries.delete(oldestKey);
+    }
+  };
+
+  const touch = (jobId, entry, nowMs = readNowMs()) => {
+    entries.delete(jobId);
+    entries.set(jobId, {
+      hostId: entry.hostId,
+      touchedAt: nowMs
+    });
+  };
+
+  return {
+    set(jobId, hostId, nowMs = readNowMs()) {
+      if (typeof jobId !== "string" || typeof hostId !== "string") {
+        return;
+      }
+      prune(nowMs);
+      touch(jobId, { hostId }, nowMs);
+      enforceMaxSize();
+    },
+    get(jobId, nowMs = readNowMs()) {
+      const entry = entries.get(jobId);
+      if (!entry) {
+        return null;
+      }
+      if (nowMs - entry.touchedAt > ttlMs) {
+        entries.delete(jobId);
+        return null;
+      }
+      touch(jobId, entry, nowMs);
+      return entry.hostId;
+    },
+    delete(jobId) {
+      entries.delete(jobId);
+    },
+    entries(nowMs = readNowMs(), includeExpired = false) {
+      if (includeExpired !== true) {
+        prune(nowMs);
+      }
+      return [...entries.entries()].map(([jobId, entry]) => [jobId, entry.hostId]);
+    },
+    prune
+  };
+}
+
 export function createFederationApiHandler({
   hosts = {},
   verifyControlPlaneToken,
@@ -676,6 +852,12 @@ export function createFederationApiHandler({
   enrollmentTokenTtlMs = DEFAULT_ENROLLMENT_TOKEN_TTL_MS,
   heartbeatDegradedMs = 15000,
   heartbeatOfflineMs = 30000,
+  jobRouteCacheMaxSize = DEFAULT_JOB_ROUTE_CACHE_MAX_SIZE,
+  jobRouteCacheTtlMs = DEFAULT_JOB_ROUTE_CACHE_TTL_MS,
+  jobRouteCacheSweepIntervalMs = DEFAULT_JOB_ROUTE_CACHE_SWEEP_INTERVAL_MS,
+  expectedWorkflowHash = null,
+  workflowDriftPolicy = "warn",
+  logEvent = null,
   getNow = null
 } = {}) {
   const readNowMs = () => {
@@ -688,15 +870,96 @@ export function createFederationApiHandler({
     return Date.now();
   };
   const nowIsoFromClock = () => new Date(readNowMs()).toISOString();
+  const safeExpectedWorkflowHash = typeof expectedWorkflowHash === "string" && expectedWorkflowHash.trim()
+    ? expectedWorkflowHash.trim()
+    : null;
+  const normalizedWorkflowDriftPolicy = typeof workflowDriftPolicy === "string"
+    ? workflowDriftPolicy.trim().toLowerCase()
+    : workflowDriftPolicy;
+  if (!ALLOWED_WORKFLOW_DRIFT_POLICIES.has(normalizedWorkflowDriftPolicy)) {
+    throw new RuntimeError(
+      "INVALID_CONFIG",
+      `workflowDriftPolicy must be one of: ${[...ALLOWED_WORKFLOW_DRIFT_POLICIES].join(", ")}`,
+      {
+        provided: workflowDriftPolicy
+      }
+    );
+  }
+  const safeWorkflowDriftPolicy = normalizedWorkflowDriftPolicy;
+  const metrics = {
+    startedAt: nowIsoFromClock(),
+    requestsTotal: 0,
+    responsesByStatus: {},
+    errorCounts: {},
+    counters: {
+      hostRegisters: 0,
+      hostEnrollments: 0,
+      hostHeartbeats: 0,
+      hostRevocations: 0,
+      reconciliations: 0,
+      reconcileBlockedJobs: 0,
+      workflowDriftDetections: 0
+    }
+  };
+  const incCounter = (counterKey, amount = 1) => {
+    metrics.counters[counterKey] = (metrics.counters[counterKey] || 0) + amount;
+  };
+  const recordError = (code) => {
+    if (typeof code !== "string" || !code.trim()) {
+      return;
+    }
+    metrics.errorCounts[code] = (metrics.errorCounts[code] || 0) + 1;
+  };
+  const snapshotMetrics = () => ({
+    ...structuredClone(metrics),
+    uptimeMs: readNowMs() - Date.parse(metrics.startedAt),
+    hostsTracked: hostRecords.size,
+    catalogEntries: runCatalog.list().length
+  });
+  const emit = (event, payload = {}) => {
+    if (typeof logEvent !== "function") {
+      return;
+    }
+    try {
+      logEvent({
+        type: "federation.telemetry",
+        event,
+        at: nowIsoFromClock(),
+        ...payload
+      });
+    } catch {
+      // telemetry sink failures should not impact API behavior
+    }
+  };
 
   const safeEnrollmentTokenTtlMs = Number.isSafeInteger(enrollmentTokenTtlMs) && enrollmentTokenTtlMs > 0
     ? enrollmentTokenTtlMs
     : DEFAULT_ENROLLMENT_TOKEN_TTL_MS;
+  const safeJobRouteCacheMaxSize = Number.isSafeInteger(jobRouteCacheMaxSize) && jobRouteCacheMaxSize > 0
+    ? jobRouteCacheMaxSize
+    : DEFAULT_JOB_ROUTE_CACHE_MAX_SIZE;
+  const safeJobRouteCacheTtlMs = Number.isSafeInteger(jobRouteCacheTtlMs) && jobRouteCacheTtlMs > 0
+    ? jobRouteCacheTtlMs
+    : DEFAULT_JOB_ROUTE_CACHE_TTL_MS;
+  const safeJobRouteCacheSweepIntervalMs =
+    Number.isSafeInteger(jobRouteCacheSweepIntervalMs) && jobRouteCacheSweepIntervalMs > 0
+      ? jobRouteCacheSweepIntervalMs
+      : DEFAULT_JOB_ROUTE_CACHE_SWEEP_INTERVAL_MS;
   const hostRecords = new Map();
   const enrollmentTokens = new Map();
   const hostSessionTokens = new Map();
-  const jobRoutes = new Map();
+  const jobRoutes = createJobRouteCache({
+    maxSize: safeJobRouteCacheMaxSize,
+    ttlMs: safeJobRouteCacheTtlMs,
+    getNow: readNowMs
+  });
   const runCatalog = createRunCatalog({ catalogStorePath });
+  const jobRouteSweepTimer = setInterval(() => {
+    jobRoutes.prune(readNowMs());
+  }, safeJobRouteCacheSweepIntervalMs);
+  if (typeof jobRouteSweepTimer.unref === "function") {
+    jobRouteSweepTimer.unref();
+  }
 
   for (const entry of runCatalog.list()) {
     if (typeof entry.jobId === "string" && typeof entry.hostId === "string") {
@@ -721,7 +984,9 @@ export function createFederationApiHandler({
       getMobileConfig: config.getMobileConfig,
       getWorkflowStatus: config.getWorkflowStatus,
       validateWorkflowPreflight: config.validateWorkflowPreflight,
-      getWorkflowStartDefaults: config.getWorkflowStartDefaults
+      getWorkflowStartDefaults: config.getWorkflowStartDefaults,
+      refreshWorkflow: config.refreshWorkflow,
+      logEvent: config.logEvent
     }));
   }
 
@@ -739,6 +1004,47 @@ export function createFederationApiHandler({
       record.heartbeat.status = "degraded";
     } else {
       record.heartbeat.status = "online";
+    }
+  };
+
+  const readWorkflowDrift = (record) => {
+    const actualContentHash = typeof record?.workflow?.contentHash === "string" && record.workflow.contentHash.trim()
+      ? record.workflow.contentHash.trim()
+      : null;
+    const drifted = Boolean(
+      safeExpectedWorkflowHash &&
+      actualContentHash &&
+      actualContentHash !== safeExpectedWorkflowHash
+    );
+    return {
+      drifted,
+      expectedContentHash: safeExpectedWorkflowHash,
+      actualContentHash
+    };
+  };
+
+  const assertWorkflowDriftPolicy = (record, { action }) => {
+    const drift = readWorkflowDrift(record);
+    if (!drift.drifted) {
+      return;
+    }
+
+    incCounter("workflowDriftDetections");
+    emit("workflow.drift.detected", {
+      hostId: record.hostId,
+      action,
+      policy: safeWorkflowDriftPolicy,
+      expectedContentHash: drift.expectedContentHash,
+      actualContentHash: drift.actualContentHash
+    });
+
+    if (safeWorkflowDriftPolicy === "block_dispatch") {
+      throw new RuntimeError("HOST_WORKFLOW_DRIFT", `Cannot ${action}: host workflow drift detected`, {
+        hostId: record.hostId,
+        expectedContentHash: drift.expectedContentHash,
+        actualContentHash: drift.actualContentHash,
+        policy: safeWorkflowDriftPolicy
+      });
     }
   };
 
@@ -767,6 +1073,7 @@ export function createFederationApiHandler({
     if (!hostHandlers.has(hostId)) {
       throw new RuntimeError("HOST_NOT_READY", `No runtime bound for host: ${hostId}`);
     }
+    assertWorkflowDriftPolicy(record, { action: "dispatch" });
     return record;
   };
 
@@ -891,14 +1198,51 @@ export function createFederationApiHandler({
   };
 
   return async function handler(req, res) {
+    metrics.requestsTotal += 1;
+    const alreadyWrapped = Boolean(res.__adhdFederationMetricsWrapped);
+    if (!alreadyWrapped && typeof res.end === "function") {
+      const originalEnd = res.end.bind(res);
+      let ended = false;
+      res.__adhdFederationMetricsWrapped = true;
+      res.end = (chunk = "", ...args) => {
+        if (!ended) {
+          ended = true;
+          const statusCode = Number.isInteger(res.statusCode) ? res.statusCode : 200;
+          const statusKey = String(statusCode);
+          metrics.responsesByStatus[statusKey] = (metrics.responsesByStatus[statusKey] || 0) + 1;
+        }
+        return originalEnd(chunk, ...args);
+      };
+    }
+
     try {
       const reqUrl = new URL(req.url, "http://127.0.0.1");
       const parts = pathParts(reqUrl);
+
+      if (req.method === "GET" && reqUrl.pathname === "/metrics") {
+        return json(res, 200, {
+          ok: true,
+          controlPlane: true,
+          workflowDriftPolicy: safeWorkflowDriftPolicy,
+          expectedWorkflowHash: safeExpectedWorkflowHash,
+          metrics: snapshotMetrics()
+        });
+      }
 
       if (req.method === "GET" && reqUrl.pathname === "/health") {
         for (const record of hostRecords.values()) {
           refreshHostHeartbeat(record);
         }
+        const driftedHosts = [...hostRecords.values()]
+          .map((record) => ({ record, drift: readWorkflowDrift(record) }))
+          .filter((entry) => entry.drift.drifted)
+          .map((entry) => ({
+            hostId: entry.record.hostId,
+            expectedContentHash: entry.drift.expectedContentHash,
+            actualContentHash: entry.drift.actualContentHash,
+            status: entry.record.workflow?.status || "unknown"
+          }))
+          .sort((a, b) => a.hostId.localeCompare(b.hostId));
         return json(res, 200, {
           ok: true,
           controlPlane: true,
@@ -906,6 +1250,11 @@ export function createFederationApiHandler({
             total: hostRecords.size,
             enrolled: [...hostRecords.values()].filter((record) => record.auth.status === "enrolled").length,
             online: [...hostRecords.values()].filter((record) => record.heartbeat.status === "online").length
+          },
+          workflow: {
+            driftPolicy: safeWorkflowDriftPolicy,
+            expectedContentHash: safeExpectedWorkflowHash,
+            driftedHosts
           }
         });
       }
@@ -915,6 +1264,7 @@ export function createFederationApiHandler({
           path: reqUrl.pathname,
           action: "host-register"
         });
+        incCounter("hostRegisters");
         const body = await readJsonBody(req);
         ensureHostId(body.hostId);
         const hostId = body.hostId;
@@ -935,6 +1285,10 @@ export function createFederationApiHandler({
         record.auth.tokenId = `tok_${randomBytes(6).toString("hex")}`;
         record.updatedAt = nowIsoFromClock();
         refreshHostHeartbeat(record);
+        emit("host.register", {
+          hostId,
+          configuredRuntime: configuredHosts.has(hostId)
+        });
 
         return json(res, 201, {
           ok: true,
@@ -954,6 +1308,7 @@ export function createFederationApiHandler({
         const hostId = parts[2];
         const body = await readJsonBody(req);
         const record = requireHostRecord(hostId);
+        incCounter("hostEnrollments");
 
         const expectedToken = readValidEnrollmentToken(hostId);
         if (!expectedToken || body.enrollmentToken !== expectedToken) {
@@ -966,12 +1321,18 @@ export function createFederationApiHandler({
         record.heartbeat.lastSeenAt = enrolledAt;
         record.capabilities = normalizeCapabilities(body.capabilities);
         record.compatibility = normalizeCompatibility(body.compatibility);
+        record.workflow = normalizeWorkflowSnapshot(body.workflow, enrolledAt);
         record.updatedAt = enrolledAt;
         refreshHostHeartbeat(record);
 
         const hostToken = `hst_${randomBytes(20).toString("hex")}`;
         hostSessionTokens.set(hostId, hostToken);
         enrollmentTokens.delete(hostId);
+        emit("host.enroll", {
+          hostId,
+          workflowStatus: record.workflow.status,
+          workflowContentHash: record.workflow.contentHash
+        });
 
         return json(res, 200, {
           ok: true,
@@ -990,6 +1351,7 @@ export function createFederationApiHandler({
         const hostId = parts[2];
         const body = await readJsonBody(req);
         const record = requireHostRecord(hostId);
+        incCounter("hostHeartbeats");
 
         if (record.auth.status !== "enrolled") {
           throw new RuntimeError("HOST_NOT_ENROLLED", `Host is not enrolled: ${hostId}`);
@@ -1015,8 +1377,17 @@ export function createFederationApiHandler({
         if (body.compatibility !== undefined) {
           record.compatibility = normalizeCompatibility(body.compatibility);
         }
+        if (body.workflow !== undefined) {
+          record.workflow = normalizeWorkflowSnapshot(body.workflow, nowIsoFromClock());
+        }
 
         refreshHostHeartbeat(record);
+        emit("host.heartbeat", {
+          hostId,
+          heartbeat: record.heartbeat.status,
+          workflowStatus: record.workflow.status,
+          workflowContentHash: record.workflow.contentHash
+        });
 
         return json(res, 202, {
           ok: true,
@@ -1037,12 +1408,14 @@ export function createFederationApiHandler({
         });
         const hostId = parts[2];
         const record = requireHostRecord(hostId);
+        incCounter("hostRevocations");
         record.auth.status = "revoked";
         record.auth.tokenId = null;
         record.heartbeat.status = "offline";
         record.updatedAt = nowIsoFromClock();
         enrollmentTokens.delete(hostId);
         hostSessionTokens.delete(hostId);
+        emit("host.revoke", { hostId });
 
         return json(res, 202, {
           ok: true,
@@ -1123,25 +1496,39 @@ export function createFederationApiHandler({
             continue;
           }
 
-          const response = await invokeHandler(hostHandlers.get(hostId), {
-            method: "GET",
-            url: "/api/jobs?limit=500&offset=0"
-          });
-          if (response.statusCode !== 200 || !Array.isArray(response.json?.jobs)) {
-            continue;
-          }
-
-          for (const job of response.json.jobs) {
-            runCatalog.upsertFromJob(job, {
-              hostId,
-              source: {
-                kind: "live-sync",
-                parentJobId: null
-              }
+          let offset = 0;
+          let pagesPulled = 0;
+          while (pagesPulled < MAX_HOST_SYNC_PAGES) {
+            const response = await invokeHandler(hostHandlers.get(hostId), {
+              method: "GET",
+              url: `/api/jobs?limit=${MAX_CATALOG_LIMIT}&offset=${offset}`
             });
-            if (job?.jobId) {
-              jobRoutes.set(job.jobId, hostId);
+            if (response.statusCode !== 200 || !Array.isArray(response.json?.jobs)) {
+              break;
             }
+
+            const jobs = response.json.jobs;
+            for (const job of jobs) {
+              runCatalog.upsertFromJob(job, {
+                hostId,
+                source: {
+                  kind: "live-sync",
+                  parentJobId: null
+                }
+              });
+              if (job?.jobId) {
+                jobRoutes.set(job.jobId, hostId);
+              }
+            }
+
+            pagesPulled += 1;
+            const hasMore = response.json?.pagination?.hasMore === true;
+            const returned = Number.parseInt(String(response.json?.pagination?.returned ?? jobs.length), 10);
+            const pageSize = Number.isSafeInteger(returned) && returned > 0 ? returned : jobs.length;
+            if (!hasMore || pageSize <= 0) {
+              break;
+            }
+            offset += pageSize;
           }
         }
 
@@ -1229,8 +1616,18 @@ export function createFederationApiHandler({
             heartbeat: hostRecord.heartbeat.status
           });
         }
+        if (action === "start" || action === "retry") {
+          assertWorkflowDriftPolicy(hostRecord, { action: `job-${action}` });
+        }
+        const hostHandler = hostHandlers.get(hostId);
+        if (!hostHandler) {
+          throw new RuntimeError("HOST_NOT_READY", `Host handler not ready for host ${hostId}`, {
+            hostId,
+            status: hostRecord.heartbeat.status
+          });
+        }
 
-        const response = await invokeHandler(hostHandlers.get(hostId), {
+        const response = await invokeHandler(hostHandler, {
           method: "POST",
           url: `/api/jobs/${encodeURIComponent(jobId)}/${action}`,
           body: JSON.stringify(body || {})
@@ -1466,8 +1863,9 @@ export function createFederationApiHandler({
           path: reqUrl.pathname,
           action: "hosts-reconcile"
         });
+        incCounter("reconciliations");
         const transitions = [];
-        for (const [jobId, hostId] of jobRoutes.entries()) {
+        for (const [jobId, hostId] of jobRoutes.entries(readNowMs(), true)) {
           const hostRecord = hostRecords.get(hostId);
           if (!hostRecord) {
             continue;
@@ -1496,6 +1894,10 @@ export function createFederationApiHandler({
             action: "blocked-by-host-outage"
           });
         }
+        incCounter("reconcileBlockedJobs", transitions.length);
+        emit("hosts.reconcile", {
+          transitions: transitions.length
+        });
 
         return json(res, 200, {
           ok: true,
@@ -1512,6 +1914,7 @@ export function createFederationApiHandler({
       });
     } catch (error) {
       const normalized = normalizeError(error);
+      recordError(normalized.code);
       const status = statusForErrorCode(normalized.code);
       return json(res, status, {
         ok: false,

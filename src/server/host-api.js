@@ -7,22 +7,14 @@ import {
   resolveDelegationMode,
   validateStructuredPlan
 } from "../intent/index.js";
+import { ALLOWED_JOB_STATES } from "./job-state-constants.js";
 import { MobileControlManager } from "./mobile-control.js";
 
 const ALLOWED_DELEGATION_MODES = new Set(["multi_agent", "fallback_workers"]);
-const ALLOWED_JOB_STATES = new Set([
-  "draft",
-  "queued",
-  "dispatching",
-  "planning",
-  "awaiting_approval",
-  "delegating",
-  "running",
-  "summarizing",
-  "completed",
-  "failed",
-  "cancelled"
-]);
+
+function nowIso() {
+  return new Date().toISOString();
+}
 
 function json(res, statusCode, payload) {
   res.statusCode = statusCode;
@@ -453,8 +445,11 @@ function workflowPreflight(options) {
   if (result === undefined || result === null) {
     return { ok: true };
   }
-  if (!isPlainObject(result)) {
-    throw new RuntimeError("INVALID_CONFIG", "Workflow preflight hook must return an object");
+  if (!isPlainObject(result) || typeof result.ok !== "boolean") {
+    throw new RuntimeError(
+      "INVALID_CONFIG",
+      "Workflow preflight hook must return an object with a boolean `ok` field"
+    );
   }
 
   if (result.ok === false) {
@@ -479,9 +474,12 @@ function workflowPreflight(options) {
   return { ok: true };
 }
 
-function ensureWorkflowReady(options) {
+function ensureWorkflowReady(options, { onBlocked } = {}) {
   const preflight = workflowPreflight(options);
   if (!preflight.ok) {
+    if (typeof onBlocked === "function") {
+      onBlocked(preflight.error);
+    }
     throw new RuntimeError(
       preflight.error.code,
       preflight.error.message,
@@ -804,7 +802,9 @@ export function createHostApiHandler({
   getMobileConfig,
   getWorkflowStatus,
   validateWorkflowPreflight,
-  getWorkflowStartDefaults
+  getWorkflowStartDefaults,
+  refreshWorkflow,
+  logEvent
 } = {}) {
   if (!runtime) {
     throw new RuntimeError("MISSING_RUNTIME", "createHostApiHandler requires runtime");
@@ -818,7 +818,44 @@ export function createHostApiHandler({
     getMobileConfig,
     getWorkflowStatus,
     validateWorkflowPreflight,
-    getWorkflowStartDefaults
+    getWorkflowStartDefaults,
+    refreshWorkflow,
+    logEvent
+  };
+  const metrics = {
+    startedAt: nowIso(),
+    requestsTotal: 0,
+    responsesByStatus: {},
+    workflowPreflightBlocks: 0,
+    workflowRefresh: {
+      attempts: 0,
+      successes: 0,
+      failures: 0,
+      lastAttemptAt: null,
+      lastSuccessAt: null,
+      lastFailureAt: null,
+      lastFailureCode: null
+    }
+  };
+  const snapshotMetrics = () => ({
+    ...structuredClone(metrics),
+    uptimeMs: Date.now() - Date.parse(metrics.startedAt)
+  });
+  const emit = (event, payload = {}) => {
+    if (typeof options.logEvent !== "function") {
+      return;
+    }
+    try {
+      options.logEvent({
+        type: "host.telemetry",
+        hostId,
+        event,
+        at: nowIso(),
+        ...payload
+      });
+    } catch {
+      // Ignore telemetry sink errors.
+    }
   };
   const mobile = new MobileControlManager(mobileConfig(options));
 
@@ -873,10 +910,40 @@ export function createHostApiHandler({
   }
 
   return async function handler(req, res) {
+    if (!req.__adhdMetricsCounted) {
+      req.__adhdMetricsCounted = true;
+      metrics.requestsTotal += 1;
+    }
+    const alreadyWrapped = Boolean(res.__adhdMetricsWrapped);
+    if (!alreadyWrapped) {
+      const originalEnd = typeof res.end === "function" ? res.end.bind(res) : null;
+      let ended = false;
+      if (originalEnd) {
+        res.__adhdMetricsWrapped = true;
+        res.end = (chunk = "", ...args) => {
+          if (!ended) {
+            ended = true;
+            const statusCode = Number.isInteger(res.statusCode) ? res.statusCode : 200;
+            const statusKey = String(statusCode);
+            metrics.responsesByStatus[statusKey] = (metrics.responsesByStatus[statusKey] || 0) + 1;
+          }
+          return originalEnd(chunk, ...args);
+        };
+      }
+    }
+
     const reqUrl = new URL(req.url, "http://127.0.0.1");
     const parts = pathParts(reqUrl);
 
     try {
+      if (req.method === "GET" && reqUrl.pathname === "/metrics") {
+        return json(res, 200, {
+          ok: true,
+          hostId,
+          metrics: snapshotMetrics()
+        });
+      }
+
       if (req.method === "GET" && reqUrl.pathname === "/health") {
         const hostPolicy = defaultDelegationPolicy(options);
         return json(res, 200, {
@@ -889,6 +956,57 @@ export function createHostApiHandler({
             enabled: mobile.enabled
           }
         });
+      }
+
+      if (req.method === "POST" && reqUrl.pathname === "/api/workflow/refresh") {
+        if (typeof options.refreshWorkflow !== "function") {
+          return json(res, 404, {
+            ok: false,
+            error: {
+              code: "WORKFLOW_REFRESH_UNSUPPORTED",
+              message: "Workflow refresh hook is not configured for this host"
+            }
+          });
+        }
+
+        metrics.workflowRefresh.attempts += 1;
+        metrics.workflowRefresh.lastAttemptAt = nowIso();
+        emit("workflow.refresh.attempt");
+
+        try {
+          const refresh = await options.refreshWorkflow();
+          if (refresh?.ok === false) {
+            metrics.workflowRefresh.failures += 1;
+            metrics.workflowRefresh.lastFailureAt = nowIso();
+            metrics.workflowRefresh.lastFailureCode = refresh?.error?.code || "WORKFLOW_REFRESH_FAILED";
+            emit("workflow.refresh.failure", {
+              code: metrics.workflowRefresh.lastFailureCode
+            });
+          } else {
+            metrics.workflowRefresh.successes += 1;
+            metrics.workflowRefresh.lastSuccessAt = nowIso();
+            emit("workflow.refresh.success", {
+              changed: Boolean(refresh?.changed)
+            });
+          }
+
+          return json(res, 200, {
+            ok: refresh?.ok !== false,
+            refresh: refresh ?? { ok: true, changed: false },
+            workflow: workflowStatus(options)
+          });
+        } catch (error) {
+          metrics.workflowRefresh.failures += 1;
+          metrics.workflowRefresh.lastFailureAt = nowIso();
+          metrics.workflowRefresh.lastFailureCode = error?.code || "WORKFLOW_REFRESH_FAILED";
+          emit("workflow.refresh.error", {
+            code: metrics.workflowRefresh.lastFailureCode
+          });
+          throw new RuntimeError(
+            "WORKFLOW_REFRESH_FAILED",
+            `Workflow refresh failed: ${error?.message || "unknown error"}`
+          );
+        }
       }
 
       if (parts.length >= 2 && parts[0] === "api" && parts[1] === "mobile") {
@@ -1007,6 +1125,7 @@ export function createHostApiHandler({
 
         // Mobile action parity: authenticated mobile routes proxy to canonical API routes.
         const proxiedPath = `/api/${parts.slice(2).join("/")}${reqUrl.search}`;
+        req.__adhdMetricsCounted = true;
         req.url = proxiedPath;
         return handler(req, res);
       }
@@ -1018,7 +1137,11 @@ export function createHostApiHandler({
       }
 
       if (req.method === "POST" && parts.length === 3 && parts[0] === "api" && parts[1] === "intent" && parts[2] === "plan") {
-        ensureWorkflowReady(options);
+        ensureWorkflowReady(options, {
+          onBlocked: () => {
+            metrics.workflowPreflightBlocks += 1;
+          }
+        });
         const body = await readJsonBody(req);
         const { intake, intent, plan, promptPackage } = resolveIntentAndPlan(body, options);
 
@@ -1035,7 +1158,11 @@ export function createHostApiHandler({
       }
 
       if (req.method === "POST" && parts.length === 2 && parts[0] === "api" && parts[1] === "jobs") {
-        ensureWorkflowReady(options);
+        ensureWorkflowReady(options, {
+          onBlocked: () => {
+            metrics.workflowPreflightBlocks += 1;
+          }
+        });
         const body = await readJsonBody(req);
         const { intake, intent, plan, promptPackage } = resolveIntentAndPlan(body, options);
 
@@ -1061,7 +1188,11 @@ export function createHostApiHandler({
       }
 
       if (req.method === "POST" && parts.length === 2 && parts[0] === "api" && parts[1] === "intake") {
-        ensureWorkflowReady(options);
+        ensureWorkflowReady(options, {
+          onBlocked: () => {
+            metrics.workflowPreflightBlocks += 1;
+          }
+        });
         const body = await readJsonBody(req);
         const { intake, intent, plan, promptPackage } = resolveIntentAndPlan(body, options);
 
@@ -1181,7 +1312,11 @@ export function createHostApiHandler({
       }
 
       if (req.method === "POST" && parts.length === 4 && parts[0] === "api" && parts[1] === "jobs" && parts[3] === "start") {
-        ensureWorkflowReady(options);
+        ensureWorkflowReady(options, {
+          onBlocked: () => {
+            metrics.workflowPreflightBlocks += 1;
+          }
+        });
         if (!isRuntimeReady(options)) {
           return json(res, 503, {
             ok: false,
@@ -1208,7 +1343,11 @@ export function createHostApiHandler({
       ) {
         const body = await readJsonBody(req);
         if (body.startNow === true) {
-          ensureWorkflowReady(options);
+          ensureWorkflowReady(options, {
+            onBlocked: () => {
+              metrics.workflowPreflightBlocks += 1;
+            }
+          });
         }
         if (body.startNow === true && !isRuntimeReady(options)) {
           return json(res, 503, {

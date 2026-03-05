@@ -11,6 +11,11 @@ import {
 } from "../src/runtime/index.js";
 import { createFederationApiHandler, HOST_ID_PATTERN } from "../src/server/federation-api.js";
 import { WorkflowStore } from "../src/workflow/index.js";
+import {
+  emitStructuredEvent,
+  resolveCodexCommand,
+  resolveDelegationPolicy
+} from "./shared/workflow-startup-utils.mjs";
 
 function envBoolean(name, defaultValue = false) {
   const value = process.env[name];
@@ -39,6 +44,15 @@ function envString(name, defaultValue = null) {
   return trimmed.length > 0 ? trimmed : defaultValue;
 }
 
+function envWorkflowDriftPolicy(name, defaultValue = "warn") {
+  const value = process.env[name];
+  if (!value) {
+    return defaultValue;
+  }
+  const normalized = value.trim().toLowerCase();
+  return ["warn", "block_dispatch"].includes(normalized) ? normalized : defaultValue;
+}
+
 function envPositiveInt(name, defaultValue) {
   const value = process.env[name];
   if (value === undefined || value === null || value === "") {
@@ -53,59 +67,6 @@ function envPositiveInt(name, defaultValue) {
     return defaultValue;
   }
   return parsed;
-}
-
-function parseCommandTokens(command) {
-  if (typeof command !== "string" || !command.trim()) {
-    return [];
-  }
-
-  const parts = command.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) || [];
-  return parts
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .map((part) => {
-      if (
-        (part.startsWith("\"") && part.endsWith("\"")) ||
-        (part.startsWith("'") && part.endsWith("'"))
-      ) {
-        return part.slice(1, -1);
-      }
-      return part;
-    });
-}
-
-function resolveCodexCommand(command, fallbackBin = "codex") {
-  const tokens = parseCommandTokens(command);
-  if (tokens.length === 0) {
-    return {
-      codexBin: fallbackBin,
-      extraArgs: []
-    };
-  }
-
-  const [codexBin, ...rawArgs] = tokens;
-  const extraArgs = [...rawArgs];
-  if (extraArgs[0] === "app-server") {
-    extraArgs.shift();
-  }
-
-  return {
-    codexBin,
-    extraArgs
-  };
-}
-
-function resolveDelegationPolicy(workflowStore, envDefaults) {
-  const current = workflowStore.current();
-  if (!current.ok) {
-    return { ...envDefaults };
-  }
-
-  return {
-    ...envDefaults,
-    ...workflowStore.getDelegationPolicy()
-  };
 }
 
 function parseHostIds() {
@@ -221,7 +182,7 @@ async function initializeHostRuntime({
   }
 
   runtime.on("approvalRequested", (event) => {
-    process.stdout.write(`${JSON.stringify({ type: "approvalRequested", hostId, ...event })}\n`);
+    emitStructuredEvent("approvalRequested", { ...(event || {}), hostId });
   });
 
   return {
@@ -237,7 +198,9 @@ async function initializeHostRuntime({
       getMobileConfig: () => ({ ...mobileRuntimeConfig }),
       getWorkflowStatus: () => workflowStore.status(),
       validateWorkflowPreflight: () => workflowStore.preflight(),
-      getWorkflowStartDefaults: () => workflowStore.getStartDefaults()
+      getWorkflowStartDefaults: () => workflowStore.getStartDefaults(),
+      refreshWorkflow: () => workflowStore.refreshAsync(),
+      logEvent: (event) => emitStructuredEvent("hostApiTelemetry", { ...(event || {}), hostId })
     },
     runtimeStatus
   };
@@ -254,7 +217,7 @@ async function main() {
     repoRoot: process.cwd(),
     cwd: hostCwd
   });
-  const workflowBoot = workflowStore.refresh();
+  const workflowBoot = await workflowStore.refreshAsync();
   if (!workflowBoot.ok && workflowBoot.error) {
     process.stderr.write(
       `[workflow] ${workflowBoot.error.code}: ${workflowBoot.error.message}\n`
@@ -269,6 +232,7 @@ async function main() {
     allowMultiAgent: envBoolean("ADHD_DELEGATION_ALLOW_MULTI_AGENT", true),
     multiAgentKillSwitch: envBoolean("ADHD_MULTI_AGENT_KILL_SWITCH", false)
   };
+  const resolvedWorkflowDriftPolicy = envWorkflowDriftPolicy("ADHD_WORKFLOW_DRIFT_POLICY", "warn");
   const mobileRuntimeConfig = {
     enabled: envBoolean("ADHD_MOBILE_ENABLED", true),
     pairingTtlMs: envPositiveInt("ADHD_MOBILE_PAIRING_TTL_MS", 5 * 60 * 1000),
@@ -301,7 +265,10 @@ async function main() {
       path.join(process.cwd(), ".adhd", "federation-run-catalog.json")
     ),
     heartbeatDegradedMs: envPositiveInt("ADHD_HEARTBEAT_DEGRADED_MS", 15000),
-    heartbeatOfflineMs: envPositiveInt("ADHD_HEARTBEAT_OFFLINE_MS", 30000)
+    heartbeatOfflineMs: envPositiveInt("ADHD_HEARTBEAT_OFFLINE_MS", 30000),
+    expectedWorkflowHash: workflowStore.status().contentHash,
+    workflowDriftPolicy: resolvedWorkflowDriftPolicy,
+    logEvent: (event) => emitStructuredEvent("federationTelemetry", event)
   });
 
   const server = http.createServer((req, res) => {
@@ -352,6 +319,7 @@ async function main() {
         hostCapabilities: defaultHostCapabilities,
         delegationPolicy: resolveDelegationPolicy(workflowStore, envDelegationPolicy),
         workflow: workflowStore.status(),
+        workflowDriftPolicy: resolvedWorkflowDriftPolicy,
         codexPolicy: workflowStore.getCodexPolicy(),
         mobile: mobileRuntimeConfig
       },
