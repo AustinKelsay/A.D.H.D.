@@ -396,11 +396,13 @@ test("control-plane auth hook blocks privileged routes without operator token", 
 });
 
 test("enrollment token expires based on configured ttl", async () => {
+  let nowMs = Date.now();
   const handler = createFederationApiHandler({
     hosts: {
       h_alpha01: { runtime: new FakeRuntime("h_alpha01") }
     },
-    enrollmentTokenTtlMs: 5
+    enrollmentTokenTtlMs: 50,
+    getNow: () => nowMs
   });
 
   const registered = await invoke(handler, {
@@ -413,7 +415,7 @@ test("enrollment token expires based on configured ttl", async () => {
   });
   assert.equal(registered.statusCode, 201);
 
-  await new Promise((resolve) => setTimeout(resolve, 10));
+  nowMs += 100;
   const expiredEnroll = await invoke(handler, {
     method: "POST",
     url: "/api/hosts/h_alpha01/enroll",
@@ -510,6 +512,117 @@ test("host list and host detail routes return enrolled records", async () => {
   assert.equal(detail.statusCode, 200);
   assert.equal(detail.json.host.hostId, "h_alpha01");
   assert.equal(detail.json.host.auth.status, "enrolled");
+});
+
+test("health exposes workflow drift summary from host workflow hashes", async () => {
+  const handler = createFederationApiHandler({
+    hosts: {
+      h_alpha01: { runtime: new FakeRuntime("h_alpha01") },
+      h_bravo02: { runtime: new FakeRuntime("h_bravo02") }
+    },
+    expectedWorkflowHash: "wf_expected_hash",
+    workflowDriftPolicy: "warn"
+  });
+
+  const alpha = await registerEnrollAndHeartbeat(handler, "h_alpha01");
+  const bravo = await registerEnrollAndHeartbeat(handler, "h_bravo02");
+
+  const heartbeatAlpha = await invoke(handler, {
+    method: "POST",
+    url: "/api/hosts/h_alpha01/heartbeat",
+    headers: {
+      authorization: `Bearer ${alpha.hostToken}`
+    },
+    body: JSON.stringify({
+      workflow: {
+        status: "loaded",
+        contentHash: "wf_expected_hash"
+      }
+    })
+  });
+  assert.equal(heartbeatAlpha.statusCode, 202);
+
+  const heartbeatBravo = await invoke(handler, {
+    method: "POST",
+    url: "/api/hosts/h_bravo02/heartbeat",
+    headers: {
+      authorization: `Bearer ${bravo.hostToken}`
+    },
+    body: JSON.stringify({
+      workflow: {
+        status: "loaded",
+        contentHash: "wf_drift_hash"
+      }
+    })
+  });
+  assert.equal(heartbeatBravo.statusCode, 202);
+
+  const health = await invoke(handler, {
+    method: "GET",
+    url: "/health"
+  });
+  assert.equal(health.statusCode, 200);
+  assert.equal(health.json.workflow.expectedContentHash, "wf_expected_hash");
+  assert.equal(health.json.workflow.driftPolicy, "warn");
+  assert.equal(health.json.workflow.driftedHosts.length, 1);
+  assert.equal(health.json.workflow.driftedHosts[0].hostId, "h_bravo02");
+});
+
+test("block_dispatch drift policy rejects dispatch to drifted host", async () => {
+  const runtime = new FakeRuntime("h_alpha01");
+  const handler = createFederationApiHandler({
+    hosts: {
+      h_alpha01: { runtime }
+    },
+    expectedWorkflowHash: "wf_expected_hash",
+    workflowDriftPolicy: "block_dispatch"
+  });
+
+  const { hostToken } = await registerEnrollAndHeartbeat(handler, "h_alpha01");
+  const heartbeat = await invoke(handler, {
+    method: "POST",
+    url: "/api/hosts/h_alpha01/heartbeat",
+    headers: {
+      authorization: `Bearer ${hostToken}`
+    },
+    body: JSON.stringify({
+      workflow: {
+        status: "loaded",
+        contentHash: "wf_drift_hash"
+      }
+    })
+  });
+  assert.equal(heartbeat.statusCode, 202);
+
+  const dispatch = await invoke(handler, {
+    method: "POST",
+    url: "/api/jobs",
+    body: JSON.stringify({
+      hostId: "h_alpha01",
+      jobId: "j_drift001",
+      inputText: "should be blocked by drift policy"
+    })
+  });
+  assert.equal(dispatch.statusCode, 409);
+  assert.equal(dispatch.json.error.code, "HOST_WORKFLOW_DRIFT");
+});
+
+test("metrics route reports host lifecycle counters", async () => {
+  const handler = createFederationApiHandler({
+    hosts: {
+      h_alpha01: { runtime: new FakeRuntime("h_alpha01") }
+    }
+  });
+
+  await registerEnrollAndHeartbeat(handler, "h_alpha01");
+  const metrics = await invoke(handler, {
+    method: "GET",
+    url: "/metrics"
+  });
+  assert.equal(metrics.statusCode, 200);
+  assert.equal(metrics.json.metrics.counters.hostRegisters, 1);
+  assert.equal(metrics.json.metrics.counters.hostEnrollments, 1);
+  assert.equal(metrics.json.metrics.counters.hostHeartbeats >= 1, true);
 });
 
 test("federation routes jobs and controls to the targeted host", async () => {
@@ -801,6 +914,23 @@ test("catalog persistence restores host linkage and serves history after restart
       })
     });
     assert.equal(created.statusCode, 201);
+    const persistedDeadlineMs = Date.now() + 1000;
+    let persisted = false;
+    while (Date.now() < persistedDeadlineMs) {
+      if (fs.existsSync(catalogPath)) {
+        try {
+          const parsed = JSON.parse(fs.readFileSync(catalogPath, "utf8"));
+          if (Array.isArray(parsed?.entries) && parsed.entries.some((entry) => entry?.jobId === "j_persist001")) {
+            persisted = true;
+            break;
+          }
+        } catch {
+          // Keep polling until a valid catalog snapshot is available.
+        }
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    assert.equal(persisted, true, "catalog entry should be persisted before restart");
 
     const handlerB = createFederationApiHandler({
       hosts: {

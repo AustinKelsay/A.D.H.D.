@@ -14,7 +14,7 @@ function writeWorkflowFile(dir, contents) {
   fs.writeFileSync(path.join(dir, "WORKFLOW.md"), contents, "utf8");
 }
 
-test("WorkflowStore loads workflow config and prompt template", () => {
+test("WorkflowStore loads workflow config and prompt template", async () => {
   const tempDir = makeTempDir();
   try {
     writeWorkflowFile(tempDir, `---
@@ -37,6 +37,7 @@ Run plan exactly as written.
       repoRoot: tempDir,
       cwd: tempDir
     });
+    await store.refreshAsync();
 
     const current = store.current();
     assert.equal(current.ok, true);
@@ -73,12 +74,15 @@ Run plan exactly as written.
     assert.equal(status.loaded, true);
     assert.equal(status.usingLastKnownGood, false);
     assert.equal(status.lastError, null);
+    assert.equal(status.telemetry.attempts >= 1, true);
+    assert.equal(status.telemetry.successes >= 1, true);
+    assert.equal(status.telemetry.failures, 0);
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
 });
 
-test("WorkflowStore keeps last-known-good workflow on invalid reload", () => {
+test("WorkflowStore keeps last-known-good workflow on invalid reload", async () => {
   const tempDir = makeTempDir();
   try {
     writeWorkflowFile(tempDir, `---
@@ -92,10 +96,13 @@ initial prompt
       repoRoot: tempDir,
       cwd: tempDir
     });
+    await store.refreshAsync();
     const initial = store.current();
     assert.equal(initial.ok, true);
     const initialHash = initial.workflow.contentHash;
 
+    // writeWorkflowFile creates a codex block without codex.command, so WorkflowStore.refreshAsync()
+    // (same validation path as refresh()) should fail with refresh.error.code === "WORKFLOW_INVALID".
     writeWorkflowFile(tempDir, `---
 codex:
   approval_policy: "on-request"
@@ -103,7 +110,7 @@ codex:
 broken prompt
 `);
 
-    const refresh = store.refresh();
+    const refresh = await store.refreshAsync();
     assert.equal(refresh.ok, false);
     assert.equal(refresh.error.code, "WORKFLOW_INVALID");
 
@@ -116,6 +123,8 @@ broken prompt
     assert.equal(status.loaded, true);
     assert.equal(status.usingLastKnownGood, true);
     assert.equal(status.lastError.code, "WORKFLOW_INVALID");
+    assert.equal(status.telemetry.failures >= 1, true);
+    assert.equal(status.telemetry.lastFailure.code, "WORKFLOW_INVALID");
 
     const preflight = store.preflight();
     assert.equal(preflight.ok, true);
@@ -124,13 +133,14 @@ broken prompt
   }
 });
 
-test("WorkflowStore preflight fails when workflow file is missing", () => {
+test("WorkflowStore preflight fails when workflow file is missing", async () => {
   const tempDir = makeTempDir();
   try {
     const store = new WorkflowStore({
       repoRoot: tempDir,
       cwd: tempDir
     });
+    await store.refreshAsync();
 
     const preflight = store.preflight();
     assert.equal(preflight.ok, false);
@@ -139,6 +149,7 @@ test("WorkflowStore preflight fails when workflow file is missing", () => {
     const status = store.status();
     assert.equal(status.loaded, false);
     assert.equal(status.lastError.code, "WORKFLOW_MISSING");
+    assert.equal(status.telemetry.failures >= 1, true);
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }

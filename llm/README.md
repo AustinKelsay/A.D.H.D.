@@ -4,8 +4,8 @@
 Source of truth for project planning, phase execution, and implementation contracts.
 
 ## Current Milestone
-- Phase 5 (multi-host federation) baseline is implemented.
-- Next build target is Phase 6 (run catalog).
+- Phase 6 (run catalog) baseline is implemented.
+- Active build target is Phase 7 (reliability and observability).
 
 ## Folder Intent
 - `project/` - canonical product and architecture definitions.
@@ -31,11 +31,13 @@ Source of truth for project planning, phase execution, and implementation contra
 - `project/phases/mobile-control-phase.md`
 - `project/phases/multi-host-federation-phase.md`
 - `project/phases/run-catalog-phase.md`
+- `project/phases/reliability-and-observability-phase.md`
 - `workflows/phase-0-bootstrap.md`
 - `workflows/phase-3-mvp-operator.md`
 - `workflows/phase-4-mobile-operator.md`
 - `workflows/phase-5-federation-operator.md`
 - `workflows/phase-6-run-catalog-operator.md`
+- `workflows/phase-7-reliability-operator.md`
 
 ## Phase 0 Commands
 - `npm run health`
@@ -64,7 +66,9 @@ Source of truth for project planning, phase execution, and implementation contra
 - `ADHD_DELEGATION_DEFAULT_MODE`
 - `ADHD_DELEGATION_ALLOW_MULTI_AGENT`
 - `ADHD_MULTI_AGENT_KILL_SWITCH`
-- `ADHD_WORKFLOW_PATH` (optional path override for `WORKFLOW.md`; defaults to repo root then host cwd)
+
+## Phase 6 Host Knobs
+- `ADHD_WORKFLOW_PATH` (optional path override for `WORKFLOW.md`; defaults to repo root, then host cwd)
 
 ## Phase 3 Commands
 - `npm test`
@@ -93,3 +97,12 @@ Source of truth for project planning, phase execution, and implementation contra
 
 ## Phase 6 Runbook
 - `workflows/phase-6-run-catalog-operator.md`
+
+## Phase 7 Commands
+- `npm run phase7:verify`
+
+## Phase 7 Host Knobs
+- `ADHD_WORKFLOW_DRIFT_POLICY` (`warn` or `block_dispatch`)
+
+## Phase 7 Runbook
+- `workflows/phase-7-reliability-operator.md`

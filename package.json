@@ -20,6 +20,7 @@
     "phase4:verify": "npm run phase3:verify",
     "phase5:verify": "npm run phase4:verify",
     "phase6:verify": "npm run phase5:verify",
+    "phase7:verify": "npm run phase6:verify && npm run compat:check",
     "docs:lint": "node scripts/docs-lint.mjs"
   }
 }

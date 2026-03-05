@@ -707,6 +707,64 @@ test("health route exposes workflow status/preflight when configured", async () 
   assert.equal(response.json.workflow.preflight.error.code, "WORKFLOW_INVALID");
 });
 
+test("workflow refresh route reports refresh outcomes and metrics", async () => {
+  const runtime = new FakeRuntime();
+  let refreshCalls = 0;
+  const handler = createHostApiHandler({
+    runtime,
+    hostId: "h_test",
+    getWorkflowStatus: () => ({
+      path: "/tmp/WORKFLOW.md",
+      loaded: true,
+      contentHash: "abc123"
+    }),
+    validateWorkflowPreflight: () => ({ ok: true }),
+    refreshWorkflow: async () => {
+      refreshCalls += 1;
+      if (refreshCalls === 1) {
+        return {
+          ok: true,
+          changed: true
+        };
+      }
+      return {
+        ok: false,
+        error: {
+          code: "WORKFLOW_PARSE_ERROR",
+          message: "bad front matter"
+        }
+      };
+    }
+  });
+
+  const refreshedOk = await invoke(handler, {
+    method: "POST",
+    url: "/api/workflow/refresh",
+    body: JSON.stringify({})
+  });
+  assert.equal(refreshedOk.statusCode, 200);
+  assert.equal(refreshedOk.json.ok, true);
+  assert.equal(refreshedOk.json.refresh.changed, true);
+
+  const refreshedFail = await invoke(handler, {
+    method: "POST",
+    url: "/api/workflow/refresh",
+    body: JSON.stringify({})
+  });
+  assert.equal(refreshedFail.statusCode, 200);
+  assert.equal(refreshedFail.json.ok, false);
+  assert.equal(refreshedFail.json.refresh.error.code, "WORKFLOW_PARSE_ERROR");
+
+  const metrics = await invoke(handler, {
+    method: "GET",
+    url: "/metrics"
+  });
+  assert.equal(metrics.statusCode, 200);
+  assert.equal(metrics.json.metrics.workflowRefresh.attempts, 2);
+  assert.equal(metrics.json.metrics.workflowRefresh.successes, 1);
+  assert.equal(metrics.json.metrics.workflowRefresh.failures, 1);
+});
+
 test("workflow preflight blocks planning and start routes", async () => {
   const runtime = new FakeRuntime();
   runtime.createJob({ jobId: "j_workflow_block", inputText: "Implement Z" });
@@ -741,6 +799,13 @@ test("workflow preflight blocks planning and start routes", async () => {
 
   assert.equal(started.statusCode, 503);
   assert.equal(started.json.error.code, "WORKFLOW_MISSING");
+
+  const metrics = await invoke(handler, {
+    method: "GET",
+    url: "/metrics"
+  });
+  assert.equal(metrics.statusCode, 200);
+  assert.equal(metrics.json.metrics.workflowPreflightBlocks, 2);
 });
 
 test("mobile routes return 404 when mobile control is disabled (boolean or string)", async () => {
