@@ -8,11 +8,13 @@ Ship the first complete value loop on a single host baseline.
 - live execution state
 - approval/interrupt/retry controls
 - completion summary and artifacts
+- workflow preflight validation and runtime reload for future dispatches
 
 ## Exit Criteria
 - end-to-end task completes reliably on one host
 - desktop and phone show consistent state
 - summaries and artifacts are persisted
+- invalid workflow edits do not crash the service and last-known-good config remains active
 
 ## Current Baseline Artifacts
 - `src/server/host-api.js`

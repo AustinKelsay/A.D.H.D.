@@ -23,6 +23,7 @@ Source of truth for project planning, phase execution, and implementation contra
 - `project/project-rules.md`
 - `project/backlog.md`
 - `project/contracts/control-plane-host-node.md`
+- `project/contracts/workflow-contract.md`
 - `project/phases/setup-phase.md`
 - `project/phases/session-runtime-phase.md`
 - `project/phases/intent-router-phase.md`
@@ -63,6 +64,7 @@ Source of truth for project planning, phase execution, and implementation contra
 - `ADHD_DELEGATION_DEFAULT_MODE`
 - `ADHD_DELEGATION_ALLOW_MULTI_AGENT`
 - `ADHD_MULTI_AGENT_KILL_SWITCH`
+- `ADHD_WORKFLOW_PATH` (optional path override for `WORKFLOW.md`; defaults to repo root then host cwd)
 
 ## Phase 3 Commands
 - `npm test`

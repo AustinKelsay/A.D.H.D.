@@ -10,6 +10,7 @@ import {
   loadAvailableMethods
 } from "../src/runtime/index.js";
 import { createFederationApiHandler, HOST_ID_PATTERN } from "../src/server/federation-api.js";
+import { WorkflowStore } from "../src/workflow/index.js";
 
 function envBoolean(name, defaultValue = false) {
   const value = process.env[name];
@@ -52,6 +53,59 @@ function envPositiveInt(name, defaultValue) {
     return defaultValue;
   }
   return parsed;
+}
+
+function parseCommandTokens(command) {
+  if (typeof command !== "string" || !command.trim()) {
+    return [];
+  }
+
+  const parts = command.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) || [];
+  return parts
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => {
+      if (
+        (part.startsWith("\"") && part.endsWith("\"")) ||
+        (part.startsWith("'") && part.endsWith("'"))
+      ) {
+        return part.slice(1, -1);
+      }
+      return part;
+    });
+}
+
+function resolveCodexCommand(command, fallbackBin = "codex") {
+  const tokens = parseCommandTokens(command);
+  if (tokens.length === 0) {
+    return {
+      codexBin: fallbackBin,
+      extraArgs: []
+    };
+  }
+
+  const [codexBin, ...rawArgs] = tokens;
+  const extraArgs = [...rawArgs];
+  if (extraArgs[0] === "app-server") {
+    extraArgs.shift();
+  }
+
+  return {
+    codexBin,
+    extraArgs
+  };
+}
+
+function resolveDelegationPolicy(workflowStore, envDefaults) {
+  const current = workflowStore.current();
+  if (!current.ok) {
+    return { ...envDefaults };
+  }
+
+  return {
+    ...envDefaults,
+    ...workflowStore.getDelegationPolicy()
+  };
 }
 
 function parseHostIds() {
@@ -106,12 +160,19 @@ async function initializeHostRuntime({
   hostId,
   skipInitialize,
   rpcOutgoingMode,
+  workflowStore,
   defaultHostCapabilities,
-  defaultDelegationPolicy,
+  envDelegationPolicy,
   mobileRuntimeConfig
 }) {
+  const codexPolicy = workflowStore.getCodexPolicy();
+  const codexCommand = resolveCodexCommand(
+    codexPolicy.command,
+    process.env.ADHD_CODEX_BIN || "codex"
+  );
   const processManager = new AppServerProcess({
-    codexBin: process.env.ADHD_CODEX_BIN || "codex",
+    codexBin: codexCommand.codexBin,
+    extraArgs: codexCommand.extraArgs,
     cwd: process.env.ADHD_HOST_CWD || process.cwd()
   });
   processManager.on("stderr", (line) => {
@@ -123,7 +184,7 @@ async function initializeHostRuntime({
   processManager.start();
 
   const rpcClient = processManager.createRpcClient({
-    requestTimeoutMs: 15000,
+    requestTimeoutMs: codexPolicy.readTimeoutMs,
     outgoingMode: rpcOutgoingMode
   });
 
@@ -172,8 +233,11 @@ async function initializeHostRuntime({
       isRuntimeReady: () => runtimeStatus.ready,
       getRuntimeStatus: () => ({ ...runtimeStatus }),
       getHostCapabilities: () => ({ ...defaultHostCapabilities }),
-      getDelegationPolicy: () => ({ ...defaultDelegationPolicy }),
-      getMobileConfig: () => ({ ...mobileRuntimeConfig })
+      getDelegationPolicy: () => resolveDelegationPolicy(workflowStore, envDelegationPolicy),
+      getMobileConfig: () => ({ ...mobileRuntimeConfig }),
+      getWorkflowStatus: () => workflowStore.status(),
+      validateWorkflowPreflight: () => workflowStore.preflight(),
+      getWorkflowStartDefaults: () => workflowStore.getStartDefaults()
     },
     runtimeStatus
   };
@@ -184,11 +248,23 @@ async function main() {
   const skipInitialize = envBoolean("ADHD_SKIP_INITIALIZE", false);
   const rpcOutgoingMode = process.env.ADHD_RPC_OUTGOING_MODE || "framed";
   const hostIds = parseHostIds();
+  const hostCwd = process.env.ADHD_HOST_CWD || process.cwd();
+  const workflowStore = new WorkflowStore({
+    workflowPath: process.env.ADHD_WORKFLOW_PATH || null,
+    repoRoot: process.cwd(),
+    cwd: hostCwd
+  });
+  const workflowBoot = workflowStore.refresh();
+  if (!workflowBoot.ok && workflowBoot.error) {
+    process.stderr.write(
+      `[workflow] ${workflowBoot.error.code}: ${workflowBoot.error.message}\n`
+    );
+  }
 
   const defaultHostCapabilities = {
     multi_agent: envBoolean("ADHD_HOST_MULTI_AGENT", false)
   };
-  const defaultDelegationPolicy = {
+  const envDelegationPolicy = {
     defaultMode: envMode("ADHD_DELEGATION_DEFAULT_MODE", "fallback_workers"),
     allowMultiAgent: envBoolean("ADHD_DELEGATION_ALLOW_MULTI_AGENT", true),
     multiAgentKillSwitch: envBoolean("ADHD_MULTI_AGENT_KILL_SWITCH", false)
@@ -209,8 +285,9 @@ async function main() {
       hostId,
       skipInitialize,
       rpcOutgoingMode,
+      workflowStore,
       defaultHostCapabilities,
-      defaultDelegationPolicy,
+      envDelegationPolicy,
       mobileRuntimeConfig
     });
     hostResources.push(hostResource);
@@ -273,7 +350,9 @@ async function main() {
           rpcOutgoingMode
         },
         hostCapabilities: defaultHostCapabilities,
-        delegationPolicy: defaultDelegationPolicy,
+        delegationPolicy: resolveDelegationPolicy(workflowStore, envDelegationPolicy),
+        workflow: workflowStore.status(),
+        codexPolicy: workflowStore.getCodexPolicy(),
         mobile: mobileRuntimeConfig
       },
       null,

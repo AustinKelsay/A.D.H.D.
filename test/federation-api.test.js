@@ -463,6 +463,14 @@ test("host enrollment requires valid token and heartbeat requires host token", a
   assert.equal(badHeartbeat.statusCode, 401);
   assert.equal(badHeartbeat.json.error.code, "HOST_UNAUTHORIZED");
 
+  const bodyOnlyHeartbeat = await invoke(handler, {
+    method: "POST",
+    url: "/api/hosts/h_alpha01/heartbeat",
+    body: JSON.stringify({ hostToken: enrolled.json.hostToken })
+  });
+  assert.equal(bodyOnlyHeartbeat.statusCode, 401);
+  assert.equal(bodyOnlyHeartbeat.json.error.code, "HOST_UNAUTHORIZED");
+
   const goodHeartbeat = await invoke(handler, {
     method: "POST",
     url: "/api/hosts/h_alpha01/heartbeat",
@@ -816,12 +824,14 @@ test("catalog persistence restores host linkage and serves history after restart
 
 test("offline hosts block dispatch and start actions deterministically", async () => {
   const runtime = new FakeRuntime("h_alpha01");
+  let mockTime = Date.now();
   const handler = createFederationApiHandler({
     hosts: {
       h_alpha01: { runtime }
     },
     heartbeatDegradedMs: 5,
-    heartbeatOfflineMs: 10
+    heartbeatOfflineMs: 10,
+    getNow: () => mockTime
   });
 
   await registerEnrollAndHeartbeat(handler, "h_alpha01");
@@ -836,7 +846,7 @@ test("offline hosts block dispatch and start actions deterministically", async (
   });
   assert.equal(created.statusCode, 201);
 
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  mockTime += 20;
 
   const blockedStart = await invoke(handler, {
     method: "POST",

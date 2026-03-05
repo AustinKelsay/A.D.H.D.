@@ -32,10 +32,11 @@ function main() {
   assertIncludes(job.required, "hostId", "job.required");
   assertIncludes(job.required, "state", "job.required");
   assertIncludes(job.required, "delegationMode", "job.required");
-  assertIncludes(job.properties ? Object.keys(job.properties) : [], "intake", "job.properties");
-  assertIncludes(job.properties ? Object.keys(job.properties) : [], "intent", "job.properties");
-  assertIncludes(job.properties ? Object.keys(job.properties) : [], "plan", "job.properties");
-  assertIncludes(job.properties ? Object.keys(job.properties) : [], "delegationDecision", "job.properties");
+  const jobPropKeys = job.properties ? Object.keys(job.properties) : [];
+  assertIncludes(jobPropKeys, "intake", "job.properties");
+  assertIncludes(jobPropKeys, "intent", "job.properties");
+  assertIncludes(jobPropKeys, "plan", "job.properties");
+  assertIncludes(jobPropKeys, "delegationDecision", "job.properties");
   if (!Array.isArray(job?.properties?.intent?.anyOf)) {
     throw new Error("job.properties.intent.anyOf must be present");
   }

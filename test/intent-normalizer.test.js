@@ -33,3 +33,29 @@ test("normalizeIntent does not mark tests optional for negated skip-tests phrase
   assert.equal(intent.constraints.includes("tests-optional"), false);
   assert.equal(intent.constraints.includes("respect-negative-instructions"), true);
 });
+
+test("normalizeIntent snapshots hostConstraints and metadata", () => {
+  const hostConstraints = {
+    hostId: "h_local",
+    limits: { cpu: 2 }
+  };
+  const metadata = {
+    labels: ["ops"]
+  };
+
+  const intent = normalizeIntent({
+    inputText: "Fix bug in ./src/runtime/host-runtime.js",
+    hostConstraints,
+    metadata
+  });
+
+  hostConstraints.limits.cpu = 8;
+  metadata.labels.push("after");
+  assert.equal(intent.hostConstraints.limits.cpu, 2);
+  assert.deepEqual(intent.metadata.labels, ["ops"]);
+
+  intent.hostConstraints.limits.cpu = 16;
+  intent.metadata.labels.push("intent-only");
+  assert.equal(hostConstraints.limits.cpu, 8);
+  assert.deepEqual(metadata.labels, ["ops", "after"]);
+});

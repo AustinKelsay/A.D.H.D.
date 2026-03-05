@@ -19,6 +19,7 @@ Track implementation from single-host baseline to multi-host orchestration.
 - Stabilize host-local runtime before federation features.
 - Keep single-host mode functional while adding multi-host capabilities.
 - Experimental Codex features always require fallback behavior.
+- Treat `WORKFLOW.md` as the repo-owned contract for prompt, runtime policy, and hooks; runtime behavior changes should flow through this contract.
 
 ## Current Milestone
 - `run-catalog-phase.md` is the active restart point.

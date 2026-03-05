@@ -50,6 +50,23 @@ function classifyWorkType(text) {
   };
 }
 
+function cloneIntentField(value) {
+  if (!value) {
+    return null;
+  }
+  try {
+    return structuredClone(value);
+  } catch {
+    if (Array.isArray(value)) {
+      return value.slice();
+    }
+    if (typeof value === "object") {
+      return { ...value };
+    }
+    return value;
+  }
+}
+
 export function normalizeIntent({
   inputText,
   target = ".",
@@ -80,7 +97,7 @@ export function normalizeIntent({
     target: normalizedTarget,
     paths,
     constraints,
-    hostConstraints: hostConstraints || null,
-    metadata: metadata || null
+    hostConstraints: cloneIntentField(hostConstraints),
+    metadata: cloneIntentField(metadata)
   };
 }

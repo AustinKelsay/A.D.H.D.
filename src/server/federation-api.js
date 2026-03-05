@@ -641,8 +641,8 @@ function ensureHostId(hostId) {
   }
 }
 
-function createHostRecord({ hostId, displayName = null } = {}) {
-  const createdAt = nowIso();
+function createHostRecord({ hostId, displayName = null, nowIsoFn = nowIso } = {}) {
+  const createdAt = nowIsoFn();
   return {
     hostId,
     displayName: displayName || hostId,
@@ -675,8 +675,20 @@ export function createFederationApiHandler({
   catalogStorePath = null,
   enrollmentTokenTtlMs = DEFAULT_ENROLLMENT_TOKEN_TTL_MS,
   heartbeatDegradedMs = 15000,
-  heartbeatOfflineMs = 30000
+  heartbeatOfflineMs = 30000,
+  getNow = null
 } = {}) {
+  const readNowMs = () => {
+    if (typeof getNow === "function") {
+      const value = Number(getNow());
+      if (Number.isFinite(value)) {
+        return value;
+      }
+    }
+    return Date.now();
+  };
+  const nowIsoFromClock = () => new Date(readNowMs()).toISOString();
+
   const safeEnrollmentTokenTtlMs = Number.isSafeInteger(enrollmentTokenTtlMs) && enrollmentTokenTtlMs > 0
     ? enrollmentTokenTtlMs
     : DEFAULT_ENROLLMENT_TOKEN_TTL_MS;
@@ -706,11 +718,14 @@ export function createFederationApiHandler({
       getRuntimeStatus: config.getRuntimeStatus,
       getHostCapabilities: config.getHostCapabilities,
       getDelegationPolicy: config.getDelegationPolicy,
-      getMobileConfig: config.getMobileConfig
+      getMobileConfig: config.getMobileConfig,
+      getWorkflowStatus: config.getWorkflowStatus,
+      validateWorkflowPreflight: config.validateWorkflowPreflight,
+      getWorkflowStartDefaults: config.getWorkflowStartDefaults
     }));
   }
 
-  const refreshHostHeartbeat = (record, nowMs = Date.now()) => {
+  const refreshHostHeartbeat = (record, nowMs = readNowMs()) => {
     if (record.auth.status !== "enrolled") {
       record.heartbeat.status = "offline";
       return;
@@ -829,14 +844,14 @@ export function createFederationApiHandler({
     return entry;
   };
 
-  const setEnrollmentToken = (hostId, token, nowMs = Date.now()) => {
+  const setEnrollmentToken = (hostId, token, nowMs = readNowMs()) => {
     enrollmentTokens.set(hostId, {
       token,
       expiresAt: new Date(nowMs + safeEnrollmentTokenTtlMs).toISOString()
     });
   };
 
-  const readValidEnrollmentToken = (hostId, nowMs = Date.now()) => {
+  const readValidEnrollmentToken = (hostId, nowMs = readNowMs()) => {
     const entry = enrollmentTokens.get(hostId);
     if (!entry) {
       return null;
@@ -907,18 +922,18 @@ export function createFederationApiHandler({
 
         let record = hostRecords.get(hostId);
         if (!record) {
-          record = createHostRecord({ hostId, displayName });
+          record = createHostRecord({ hostId, displayName, nowIsoFn: nowIsoFromClock });
           hostRecords.set(hostId, record);
         } else if (displayName) {
           record.displayName = displayName;
-          record.updatedAt = nowIso();
+          record.updatedAt = nowIsoFromClock();
         }
 
         const enrollmentToken = `enr_${randomBytes(16).toString("hex")}`;
         setEnrollmentToken(hostId, enrollmentToken);
         record.auth.status = "pending";
         record.auth.tokenId = `tok_${randomBytes(6).toString("hex")}`;
-        record.updatedAt = nowIso();
+        record.updatedAt = nowIsoFromClock();
         refreshHostHeartbeat(record);
 
         return json(res, 201, {
@@ -945,7 +960,7 @@ export function createFederationApiHandler({
           throw new RuntimeError("HOST_UNAUTHORIZED", "Invalid enrollment token");
         }
 
-        const enrolledAt = nowIso();
+        const enrolledAt = nowIsoFromClock();
         record.auth.status = "enrolled";
         record.auth.tokenId = `tok_${randomBytes(6).toString("hex")}`;
         record.heartbeat.lastSeenAt = enrolledAt;
@@ -980,16 +995,19 @@ export function createFederationApiHandler({
           throw new RuntimeError("HOST_NOT_ENROLLED", `Host is not enrolled: ${hostId}`);
         }
 
+        if (Object.prototype.hasOwnProperty.call(body, "hostToken")) {
+          throw new RuntimeError("HOST_UNAUTHORIZED", "Heartbeat token must be provided via Authorization header");
+        }
         const tokenFromHeader = parseBearerToken(req.headers.authorization || "");
-        const suppliedToken = tokenFromHeader || body.hostToken || null;
+        const suppliedToken = tokenFromHeader || null;
         const expected = hostSessionTokens.get(hostId);
         if (!expected || suppliedToken !== expected) {
           throw new RuntimeError("HOST_UNAUTHORIZED", "Invalid host token for heartbeat");
         }
 
-        record.heartbeat.lastSeenAt = nowIso();
+        record.heartbeat.lastSeenAt = nowIsoFromClock();
         record.heartbeat.status = "online";
-        record.updatedAt = nowIso();
+        record.updatedAt = nowIsoFromClock();
 
         if (body.capabilities !== undefined) {
           record.capabilities = normalizeCapabilities(body.capabilities);
@@ -1022,7 +1040,7 @@ export function createFederationApiHandler({
         record.auth.status = "revoked";
         record.auth.tokenId = null;
         record.heartbeat.status = "offline";
-        record.updatedAt = nowIso();
+        record.updatedAt = nowIsoFromClock();
         enrollmentTokens.delete(hostId);
         hostSessionTokens.delete(hostId);
 

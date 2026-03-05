@@ -9,19 +9,22 @@ Define conductor planning contracts and delegation behavior for host-local execu
 - structured plan validation
 - delegation policy (`multi_agent` vs fallback)
 - API routes for normalization and plan inspection
+- workflow-driven prompt template rendering with strict variable/contract checks
 
 ## Work Items
 1. Normalize voice/text to stable task object.
-2. Version conductor prompt files.
+2. Version conductor prompt files and map them into `WORKFLOW.md` prompt contract.
 3. Validate structured plan output before execution.
 4. Enforce delegation mode policy and kill switch.
 5. Include optional host constraints in plan metadata.
 6. Persist intent/plan/delegation decision metadata on each created job.
+7. Fail fast on workflow template parse/render errors (no silent prompt fallback for invalid templates).
 
 ## Exit Criteria
 - same input yields reproducible plan shape
 - invalid plans fail safely
 - delegation mode is explicit and auditable
+- workflow template rendering is strict and deterministic
 
 ## Current Baseline Artifacts
 - `src/intent/normalizer.js`

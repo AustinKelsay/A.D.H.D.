@@ -8,6 +8,7 @@ Enable one ADHD control plane to orchestrate multiple host machines.
 - host heartbeat/capability sync
 - per-job host targeting and host-aware dispatch
 - host outage handling and recovery behavior
+- host-aware workflow contract visibility (workflow version/hash per host)
 
 ## Work Items
 1. Host registry
@@ -24,6 +25,9 @@ Enable one ADHD control plane to orchestrate multiple host machines.
 
 5. Outage policy
 - Define and implement behavior for offline hosts and stranded jobs.
+
+6. Workflow drift handling
+- Surface host workflow version/hash and block unsafe dispatch when workflow policy drift exceeds configured tolerance.
 
 ## Current Baseline Artifacts
 - `src/server/federation-api.js`
@@ -68,6 +72,7 @@ Enable one ADHD control plane to orchestrate multiple host machines.
 - same app can operate Host A and Host B
 - each job is clearly bound to one host
 - outage handling is deterministic and test-covered
+- operator can inspect workflow version parity across hosts
 
 ## Verification Commands
 - `npm run federation-api:start`

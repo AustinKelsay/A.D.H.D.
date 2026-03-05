@@ -10,6 +10,23 @@ import {
   loadAvailableMethods
 } from "../src/runtime/index.js";
 import { createHostApiHandler } from "../src/server/host-api.js";
+import { WorkflowStore } from "../src/workflow/index.js";
+
+function formatRawEnvValue(value) {
+  if (value === undefined) {
+    return "<undefined>";
+  }
+  if (value === null) {
+    return "<null>";
+  }
+  return JSON.stringify(String(value));
+}
+
+function warnEnvDefault(name, rawValue, defaultValue, reason) {
+  console.warn(
+    `[config] ${name}=${formatRawEnvValue(rawValue)} (${reason}); using default ${JSON.stringify(defaultValue)}`
+  );
+}
 
 function envBoolean(name, defaultValue = false) {
   const value = process.env[name];
@@ -20,44 +37,123 @@ function envBoolean(name, defaultValue = false) {
 }
 
 function envMode(name, defaultValue = "fallback_workers") {
-  const value = process.env[name];
-  if (!value) {
+  const rawValue = process.env[name];
+  if (rawValue === undefined || rawValue === null || String(rawValue).trim() === "") {
+    warnEnvDefault(name, rawValue, defaultValue, "missing value");
     return defaultValue;
   }
 
-  const normalized = value.trim().toLowerCase();
-  return ["multi_agent", "fallback_workers"].includes(normalized) ? normalized : defaultValue;
+  const normalized = String(rawValue).trim().toLowerCase();
+  if (["multi_agent", "fallback_workers"].includes(normalized)) {
+    return normalized;
+  }
+  warnEnvDefault(name, rawValue, defaultValue, "invalid mode");
+  return defaultValue;
 }
 
 function envPositiveInt(name, defaultValue) {
-  const value = process.env[name];
-  if (value === undefined || value === null || value === "") {
+  const rawValue = process.env[name];
+  if (rawValue === undefined || rawValue === null || rawValue === "") {
+    warnEnvDefault(name, rawValue, defaultValue, "missing value");
     return defaultValue;
   }
-  const rawValue = String(value).trim();
-  if (!/^[0-9]+$/.test(rawValue)) {
+  const normalized = String(rawValue).trim();
+  if (!/^[0-9]+$/.test(normalized)) {
+    warnEnvDefault(name, rawValue, defaultValue, "not a positive integer");
     return defaultValue;
   }
-  const parsed = Number.parseInt(rawValue, 10);
+  const parsed = Number.parseInt(normalized, 10);
   if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+    warnEnvDefault(name, rawValue, defaultValue, "out of range");
     return defaultValue;
   }
   return parsed;
 }
 
+function parseCommandTokens(command) {
+  if (typeof command !== "string" || !command.trim()) {
+    return [];
+  }
+
+  const parts = command.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) || [];
+  return parts
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => {
+      if (
+        (part.startsWith("\"") && part.endsWith("\"")) ||
+        (part.startsWith("'") && part.endsWith("'"))
+      ) {
+        return part.slice(1, -1);
+      }
+      return part;
+    });
+}
+
+function resolveCodexCommand(command, fallbackBin = "codex") {
+  const tokens = parseCommandTokens(command);
+  if (tokens.length === 0) {
+    return {
+      codexBin: fallbackBin,
+      extraArgs: []
+    };
+  }
+
+  const [codexBin, ...rawArgs] = tokens;
+  const extraArgs = [...rawArgs];
+  if (extraArgs[0] === "app-server") {
+    extraArgs.shift();
+  }
+
+  return {
+    codexBin,
+    extraArgs
+  };
+}
+
+function resolveDelegationPolicy(workflowStore, envDefaults) {
+  const current = workflowStore.current();
+  if (!current.ok) {
+    return { ...envDefaults };
+  }
+
+  return {
+    ...envDefaults,
+    ...workflowStore.getDelegationPolicy()
+  };
+}
+
 async function main() {
   const hostId = process.env.ADHD_HOST_ID || "h_local";
   const port = Number.parseInt(process.env.PORT || "8787", 10);
+  const hostCwd = process.env.ADHD_HOST_CWD || process.cwd();
+  const workflowStore = new WorkflowStore({
+    workflowPath: process.env.ADHD_WORKFLOW_PATH || null,
+    repoRoot: process.cwd(),
+    cwd: hostCwd
+  });
+  const workflowBoot = workflowStore.refresh();
+  if (!workflowBoot.ok && workflowBoot.error) {
+    process.stderr.write(
+      `[workflow] ${workflowBoot.error.code}: ${workflowBoot.error.message}\n`
+    );
+  }
+
   const skipInitialize = envBoolean("ADHD_SKIP_INITIALIZE", false);
   const rpcOutgoingMode = process.env.ADHD_RPC_OUTGOING_MODE || "framed";
   const hostCapabilities = {
     multi_agent: envBoolean("ADHD_HOST_MULTI_AGENT", false)
   };
-  const defaultDelegationPolicy = {
+  const envDelegationPolicy = {
     defaultMode: envMode("ADHD_DELEGATION_DEFAULT_MODE", "fallback_workers"),
     allowMultiAgent: envBoolean("ADHD_DELEGATION_ALLOW_MULTI_AGENT", true),
     multiAgentKillSwitch: envBoolean("ADHD_MULTI_AGENT_KILL_SWITCH", false)
   };
+  const codexPolicy = workflowStore.getCodexPolicy();
+  const codexCommand = resolveCodexCommand(
+    codexPolicy.command,
+    process.env.ADHD_CODEX_BIN || "codex"
+  );
   const mobileRuntimeConfig = {
     enabled: envBoolean("ADHD_MOBILE_ENABLED", true),
     pairingTtlMs: envPositiveInt("ADHD_MOBILE_PAIRING_TTL_MS", 5 * 60 * 1000),
@@ -68,8 +164,9 @@ async function main() {
   };
 
   const processManager = new AppServerProcess({
-    codexBin: process.env.ADHD_CODEX_BIN || "codex",
-    cwd: process.env.ADHD_HOST_CWD || process.cwd()
+    codexBin: codexCommand.codexBin,
+    extraArgs: codexCommand.extraArgs,
+    cwd: hostCwd
   });
 
   processManager.on("stderr", (line) => {
@@ -82,7 +179,7 @@ async function main() {
   processManager.start();
 
   const rpcClient = processManager.createRpcClient({
-    requestTimeoutMs: 15000,
+    requestTimeoutMs: codexPolicy.readTimeoutMs,
     outgoingMode: rpcOutgoingMode
   });
 
@@ -129,8 +226,11 @@ async function main() {
     isRuntimeReady: () => runtimeStatus.ready,
     getRuntimeStatus: () => ({ ...runtimeStatus }),
     getHostCapabilities: () => ({ ...hostCapabilities }),
-    getDelegationPolicy: () => ({ ...defaultDelegationPolicy }),
-    getMobileConfig: () => ({ ...mobileRuntimeConfig })
+    getDelegationPolicy: () => resolveDelegationPolicy(workflowStore, envDelegationPolicy),
+    getMobileConfig: () => ({ ...mobileRuntimeConfig }),
+    getWorkflowStatus: () => workflowStore.status(),
+    validateWorkflowPreflight: () => workflowStore.preflight(),
+    getWorkflowStartDefaults: () => workflowStore.getStartDefaults()
   });
 
   const server = http.createServer((req, res) => {
@@ -175,7 +275,9 @@ async function main() {
         port,
         runtime: runtimeStatus,
         hostCapabilities,
-        delegationPolicy: defaultDelegationPolicy,
+        delegationPolicy: resolveDelegationPolicy(workflowStore, envDelegationPolicy),
+        workflow: workflowStore.status(),
+        codexPolicy,
         mobile: mobileRuntimeConfig,
         rpcOutgoingMode
       },

@@ -9,6 +9,8 @@ const REQUIRED = [
   "llm/project/tech-stack.md",
   "llm/project/project-rules.md",
   "llm/project/backlog.md",
+  "llm/project/contracts/control-plane-host-node.md",
+  "llm/project/contracts/workflow-contract.md",
   "llm/project/phases/setup-phase.md",
   "llm/project/phases/session-runtime-phase.md",
   "llm/project/phases/intent-router-phase.md",
