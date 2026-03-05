@@ -29,10 +29,12 @@ Source of truth for project planning, phase execution, and implementation contra
 - `project/phases/mvp-phase.md`
 - `project/phases/mobile-control-phase.md`
 - `project/phases/multi-host-federation-phase.md`
+- `project/phases/run-catalog-phase.md`
 - `workflows/phase-0-bootstrap.md`
 - `workflows/phase-3-mvp-operator.md`
 - `workflows/phase-4-mobile-operator.md`
 - `workflows/phase-5-federation-operator.md`
+- `workflows/phase-6-run-catalog-operator.md`
 
 ## Phase 0 Commands
 - `npm run health`
@@ -83,3 +85,9 @@ Source of truth for project planning, phase execution, and implementation contra
 
 ## Phase 5 Runbook
 - `workflows/phase-5-federation-operator.md`
+
+## Phase 6 Commands
+- `npm run phase6:verify`
+
+## Phase 6 Runbook
+- `workflows/phase-6-run-catalog-operator.md`

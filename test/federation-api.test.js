@@ -1,5 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { Readable } from "node:stream";
 import { EventEmitter } from "node:events";
 
@@ -239,14 +242,15 @@ async function invoke(handler, { method, url, body = null, headers = {} }) {
   };
 }
 
-async function registerEnrollAndHeartbeat(handler, hostId) {
+async function registerEnrollAndHeartbeat(handler, hostId, { registerHeaders = {} } = {}) {
   const registered = await invoke(handler, {
     method: "POST",
     url: "/api/hosts/register",
     body: JSON.stringify({
       hostId,
       displayName: `${hostId}-node`
-    })
+    }),
+    headers: registerHeaders
   });
   assert.equal(registered.statusCode, 201);
   assert.equal(typeof registered.json.enrollmentToken, "string");
@@ -294,6 +298,133 @@ async function registerEnrollAndHeartbeat(handler, hostId) {
     hostToken: enrolled.json.hostToken
   };
 }
+
+test("control-plane auth hook blocks privileged routes without operator token", async () => {
+  const operatorToken = "cp_secret";
+  const handler = createFederationApiHandler({
+    hosts: {
+      h_alpha01: { runtime: new FakeRuntime("h_alpha01") }
+    },
+    verifyControlPlaneToken: ({ headers }) => headers?.authorization === `Bearer ${operatorToken}`
+  });
+
+  const unauthorizedRegister = await invoke(handler, {
+    method: "POST",
+    url: "/api/hosts/register",
+    body: JSON.stringify({ hostId: "h_alpha01" })
+  });
+  assert.equal(unauthorizedRegister.statusCode, 401);
+  assert.equal(unauthorizedRegister.json.error.code, "CONTROL_PLANE_UNAUTHORIZED");
+
+  const { hostToken } = await registerEnrollAndHeartbeat(handler, "h_alpha01", {
+    registerHeaders: {
+      authorization: `Bearer ${operatorToken}`
+    }
+  });
+
+  const unauthorizedDispatch = await invoke(handler, {
+    method: "POST",
+    url: "/api/jobs",
+    body: JSON.stringify({
+      hostId: "h_alpha01",
+      jobId: "j_auth001",
+      inputText: "secure dispatch"
+    })
+  });
+  assert.equal(unauthorizedDispatch.statusCode, 401);
+  assert.equal(unauthorizedDispatch.json.error.code, "CONTROL_PLANE_UNAUTHORIZED");
+
+  const authorizedDispatch = await invoke(handler, {
+    method: "POST",
+    url: "/api/jobs",
+    headers: {
+      authorization: `Bearer ${operatorToken}`
+    },
+    body: JSON.stringify({
+      hostId: "h_alpha01",
+      jobId: "j_auth001",
+      inputText: "secure dispatch"
+    })
+  });
+  assert.equal(authorizedDispatch.statusCode, 201);
+
+  const unauthorizedReconcile = await invoke(handler, {
+    method: "POST",
+    url: "/api/hosts/reconcile",
+    body: JSON.stringify({})
+  });
+  assert.equal(unauthorizedReconcile.statusCode, 401);
+  assert.equal(unauthorizedReconcile.json.error.code, "CONTROL_PLANE_UNAUTHORIZED");
+
+  const authorizedReconcile = await invoke(handler, {
+    method: "POST",
+    url: "/api/hosts/reconcile",
+    headers: {
+      authorization: `Bearer ${operatorToken}`
+    },
+    body: JSON.stringify({})
+  });
+  assert.equal(authorizedReconcile.statusCode, 200);
+
+  const heartbeat = await invoke(handler, {
+    method: "POST",
+    url: "/api/hosts/h_alpha01/heartbeat",
+    body: JSON.stringify({}),
+    headers: {
+      authorization: `Bearer ${hostToken}`
+    }
+  });
+  assert.equal(heartbeat.statusCode, 202);
+
+  const unauthorizedRerun = await invoke(handler, {
+    method: "POST",
+    url: "/api/jobs/j_auth001/rerun",
+    body: JSON.stringify({})
+  });
+  assert.equal(unauthorizedRerun.statusCode, 401);
+  assert.equal(unauthorizedRerun.json.error.code, "CONTROL_PLANE_UNAUTHORIZED");
+
+  const unauthorizedClone = await invoke(handler, {
+    method: "POST",
+    url: "/api/jobs/j_auth001/clone",
+    body: JSON.stringify({
+      jobId: "j_auth_clone001"
+    })
+  });
+  assert.equal(unauthorizedClone.statusCode, 401);
+  assert.equal(unauthorizedClone.json.error.code, "CONTROL_PLANE_UNAUTHORIZED");
+});
+
+test("enrollment token expires based on configured ttl", async () => {
+  const handler = createFederationApiHandler({
+    hosts: {
+      h_alpha01: { runtime: new FakeRuntime("h_alpha01") }
+    },
+    enrollmentTokenTtlMs: 5
+  });
+
+  const registered = await invoke(handler, {
+    method: "POST",
+    url: "/api/hosts/register",
+    body: JSON.stringify({
+      hostId: "h_alpha01",
+      displayName: "alpha"
+    })
+  });
+  assert.equal(registered.statusCode, 201);
+
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  const expiredEnroll = await invoke(handler, {
+    method: "POST",
+    url: "/api/hosts/h_alpha01/enroll",
+    body: JSON.stringify({
+      enrollmentToken: registered.json.enrollmentToken
+    })
+  });
+
+  assert.equal(expiredEnroll.statusCode, 401);
+  assert.equal(expiredEnroll.json.error.code, "HOST_UNAUTHORIZED");
+});
 
 test("host enrollment requires valid token and heartbeat requires host token", async () => {
   const handler = createFederationApiHandler({
@@ -416,6 +547,271 @@ test("federation routes jobs and controls to the targeted host", async () => {
   assert.equal(loaded.statusCode, 200);
   assert.equal(loaded.json.hostId, "h_bravo02");
   assert.equal(loaded.json.job.jobId, "j_fed001");
+});
+
+test("jobs catalog supports host/state/repo/date filters across hosts", async () => {
+  const alphaRuntime = new FakeRuntime("h_alpha01");
+  const betaRuntime = new FakeRuntime("h_bravo02");
+  const handler = createFederationApiHandler({
+    hosts: {
+      h_alpha01: { runtime: alphaRuntime },
+      h_bravo02: { runtime: betaRuntime }
+    }
+  });
+
+  await registerEnrollAndHeartbeat(handler, "h_alpha01");
+  await registerEnrollAndHeartbeat(handler, "h_bravo02");
+
+  const createdAlpha = await invoke(handler, {
+    method: "POST",
+    url: "/api/jobs",
+    body: JSON.stringify({
+      hostId: "h_alpha01",
+      jobId: "j_cat001",
+      inputText: "Fix alpha bug",
+      intent: {
+        rawText: "Fix alpha bug",
+        target: "/repos/alpha-app"
+      }
+    })
+  });
+  assert.equal(createdAlpha.statusCode, 201);
+
+  const createdBravo = await invoke(handler, {
+    method: "POST",
+    url: "/api/jobs",
+    body: JSON.stringify({
+      hostId: "h_bravo02",
+      jobId: "j_cat002",
+      inputText: "Fix bravo bug",
+      intent: {
+        rawText: "Fix bravo bug",
+        target: "/repos/bravo-app"
+      }
+    })
+  });
+  assert.equal(createdBravo.statusCode, 201);
+
+  const startedBravo = await invoke(handler, {
+    method: "POST",
+    url: "/api/jobs/j_cat002/start",
+    body: JSON.stringify({})
+  });
+  assert.equal(startedBravo.statusCode, 200);
+
+  const filtered = await invoke(handler, {
+    method: "GET",
+    url: "/api/jobs?hostId=h_alpha01&state=queued&repo=alpha-app&from=2020-01-01T00:00:00.000Z&to=2099-01-01T00:00:00.000Z"
+  });
+  assert.equal(filtered.statusCode, 200);
+  assert.equal(filtered.json.jobs.length, 1);
+  assert.equal(filtered.json.jobs[0].jobId, "j_cat001");
+  assert.equal(filtered.json.catalog.length, 1);
+  assert.equal(filtered.json.catalog[0].hostId, "h_alpha01");
+  assert.equal(filtered.json.catalog[0].repoPath, "/repos/alpha-app");
+  assert.equal(filtered.json.filters.hostId, "h_alpha01");
+  assert.deepEqual(filtered.json.filters.state, ["queued"]);
+});
+
+test("clone route replays a job onto preserved host context", async () => {
+  const alphaRuntime = new FakeRuntime("h_alpha01");
+  const betaRuntime = new FakeRuntime("h_bravo02");
+  const handler = createFederationApiHandler({
+    hosts: {
+      h_alpha01: { runtime: alphaRuntime },
+      h_bravo02: { runtime: betaRuntime }
+    }
+  });
+
+  await registerEnrollAndHeartbeat(handler, "h_alpha01");
+  await registerEnrollAndHeartbeat(handler, "h_bravo02");
+
+  const created = await invoke(handler, {
+    method: "POST",
+    url: "/api/jobs",
+    body: JSON.stringify({
+      hostId: "h_bravo02",
+      jobId: "j_clone_src001",
+      inputText: "Compile release notes",
+      intent: {
+        rawText: "Compile release notes",
+        target: "/repos/bravo-app"
+      }
+    })
+  });
+  assert.equal(created.statusCode, 201);
+
+  const cloned = await invoke(handler, {
+    method: "POST",
+    url: "/api/jobs/j_clone_src001/clone",
+    body: JSON.stringify({
+      jobId: "j_clone_new001",
+      startNow: true
+    })
+  });
+  assert.equal(cloned.statusCode, 201);
+  assert.equal(cloned.json.hostId, "h_bravo02");
+  assert.equal(cloned.json.sourceJobId, "j_clone_src001");
+  assert.equal(cloned.json.job.jobId, "j_clone_new001");
+  assert.equal(cloned.json.job.state, JOB_STATES.RUNNING);
+  assert.equal(betaRuntime.getJob("j_clone_new001") !== null, true);
+  assert.equal(alphaRuntime.getJob("j_clone_new001"), null);
+});
+
+test("rerun route retries and starts the same job on its routed host", async () => {
+  const runtime = new FakeRuntime("h_alpha01");
+  const handler = createFederationApiHandler({
+    hosts: {
+      h_alpha01: { runtime }
+    }
+  });
+
+  await registerEnrollAndHeartbeat(handler, "h_alpha01");
+  const created = await invoke(handler, {
+    method: "POST",
+    url: "/api/jobs",
+    body: JSON.stringify({
+      hostId: "h_alpha01",
+      jobId: "j_rerun001",
+      inputText: "Run once and rerun"
+    })
+  });
+  assert.equal(created.statusCode, 201);
+
+  const started = await invoke(handler, {
+    method: "POST",
+    url: "/api/jobs/j_rerun001/start",
+    body: JSON.stringify({})
+  });
+  assert.equal(started.statusCode, 200);
+
+  const interrupted = await invoke(handler, {
+    method: "POST",
+    url: "/api/jobs/j_rerun001/interrupt",
+    body: JSON.stringify({})
+  });
+  assert.equal(interrupted.statusCode, 200);
+  assert.equal(interrupted.json.job.state, JOB_STATES.CANCELLED);
+
+  const rerun = await invoke(handler, {
+    method: "POST",
+    url: "/api/jobs/j_rerun001/rerun",
+    body: JSON.stringify({})
+  });
+  assert.equal(rerun.statusCode, 200);
+  assert.equal(rerun.json.replayMode, "rerun");
+  assert.equal(rerun.json.hostId, "h_alpha01");
+  assert.equal(rerun.json.job.state, JOB_STATES.RUNNING);
+});
+
+test("rerun route returns JOB_NOT_FOUND when clone fallback is disabled", async () => {
+  const runtime = new FakeRuntime("h_alpha01");
+  const handler = createFederationApiHandler({
+    hosts: {
+      h_alpha01: { runtime }
+    }
+  });
+
+  await registerEnrollAndHeartbeat(handler, "h_alpha01");
+  const created = await invoke(handler, {
+    method: "POST",
+    url: "/api/jobs",
+    body: JSON.stringify({
+      hostId: "h_alpha01",
+      jobId: "j_rerun_missing001",
+      inputText: "Catalog remembers this"
+    })
+  });
+  assert.equal(created.statusCode, 201);
+
+  runtime.jobs.delete("j_rerun_missing001");
+
+  const rerun = await invoke(handler, {
+    method: "POST",
+    url: "/api/jobs/j_rerun_missing001/rerun",
+    body: JSON.stringify({
+      cloneIfMissing: false
+    })
+  });
+  assert.equal(rerun.statusCode, 404);
+  assert.equal(rerun.json.error.code, "JOB_NOT_FOUND");
+
+  const missingClone = runtime.getJob("j_rerun_missing001_clone");
+  assert.equal(missingClone, null);
+});
+
+test("jobs catalog validates filter inputs and returns 400 for invalid values", async () => {
+  const handler = createFederationApiHandler({
+    hosts: {
+      h_alpha01: { runtime: new FakeRuntime("h_alpha01") }
+    }
+  });
+
+  const badState = await invoke(handler, {
+    method: "GET",
+    url: "/api/jobs?state=not_a_state"
+  });
+  assert.equal(badState.statusCode, 400);
+  assert.equal(badState.json.error.code, "INVALID_INPUT");
+
+  const badFrom = await invoke(handler, {
+    method: "GET",
+    url: "/api/jobs?from=not-a-date"
+  });
+  assert.equal(badFrom.statusCode, 400);
+  assert.equal(badFrom.json.error.code, "INVALID_INPUT");
+
+  const fromAfterTo = await invoke(handler, {
+    method: "GET",
+    url: "/api/jobs?from=2026-01-02T00:00:00.000Z&to=2026-01-01T00:00:00.000Z"
+  });
+  assert.equal(fromAfterTo.statusCode, 400);
+  assert.equal(fromAfterTo.json.error.code, "INVALID_INPUT");
+});
+
+test("catalog persistence restores host linkage and serves history after restart", async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "adhd-fed-catalog-"));
+  const catalogPath = path.join(tempDir, "catalog.json");
+
+  try {
+    const runtime = new FakeRuntime("h_alpha01");
+    const handlerA = createFederationApiHandler({
+      hosts: {
+        h_alpha01: { runtime }
+      },
+      catalogStorePath: catalogPath
+    });
+
+    await registerEnrollAndHeartbeat(handlerA, "h_alpha01");
+    const created = await invoke(handlerA, {
+      method: "POST",
+      url: "/api/jobs",
+      body: JSON.stringify({
+        hostId: "h_alpha01",
+        jobId: "j_persist001",
+        inputText: "Persist me"
+      })
+    });
+    assert.equal(created.statusCode, 201);
+
+    const handlerB = createFederationApiHandler({
+      hosts: {
+        h_alpha01: { runtime: new FakeRuntime("h_alpha01") }
+      },
+      catalogStorePath: catalogPath
+    });
+
+    const loaded = await invoke(handlerB, {
+      method: "GET",
+      url: "/api/jobs/j_persist001"
+    });
+    assert.equal(loaded.statusCode, 200);
+    assert.equal(loaded.json.hostId, "h_alpha01");
+    assert.equal(loaded.json.job.jobId, "j_persist001");
+    assert.equal(loaded.json.catalog.jobId, "j_persist001");
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
 });
 
 test("offline hosts block dispatch and start actions deterministically", async () => {

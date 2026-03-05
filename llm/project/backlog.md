@@ -136,11 +136,19 @@
 - Owner: agent
 - Size: M
 - Depends on: ADHD2-503
+- Status: done
+- Done when:
+  - control plane persists host-aware run catalog entries (`jobId`, `hostId`, state/timestamps, replay source)
+  - host linkage is restored from catalog after control-plane restart
 
 ### ADHD2-602 Cross-host search and replay
 - Owner: agent
 - Size: M
 - Depends on: ADHD2-601
+- Status: done
+- Done when:
+  - operators can filter catalog by host/state/repo/date and query text
+  - rerun and clone replay routes preserve host context by default
 
 ## Phase 7: Reliability and Observability
 

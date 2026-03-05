@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import http from "node:http";
+import path from "node:path";
 import process from "node:process";
 
 import {
@@ -8,9 +9,7 @@ import {
   HostRuntime,
   loadAvailableMethods
 } from "../src/runtime/index.js";
-import { createFederationApiHandler } from "../src/server/federation-api.js";
-
-const HOST_ID_PATTERN = /^h_[a-z0-9]{6,}$/;
+import { createFederationApiHandler, HOST_ID_PATTERN } from "../src/server/federation-api.js";
 
 function envBoolean(name, defaultValue = false) {
   const value = process.env[name];
@@ -28,6 +27,15 @@ function envMode(name, defaultValue = "fallback_workers") {
 
   const normalized = value.trim().toLowerCase();
   return ["multi_agent", "fallback_workers"].includes(normalized) ? normalized : defaultValue;
+}
+
+function envString(name, defaultValue = null) {
+  const value = process.env[name];
+  if (value === undefined || value === null) {
+    return defaultValue;
+  }
+  const trimmed = String(value).trim();
+  return trimmed.length > 0 ? trimmed : defaultValue;
 }
 
 function envPositiveInt(name, defaultValue) {
@@ -211,6 +219,10 @@ async function main() {
 
   const handler = createFederationApiHandler({
     hosts,
+    catalogStorePath: envString(
+      "ADHD_FED_CATALOG_PATH",
+      path.join(process.cwd(), ".adhd", "federation-run-catalog.json")
+    ),
     heartbeatDegradedMs: envPositiveInt("ADHD_HEARTBEAT_DEGRADED_MS", 15000),
     heartbeatOfflineMs: envPositiveInt("ADHD_HEARTBEAT_OFFLINE_MS", 30000)
   });
