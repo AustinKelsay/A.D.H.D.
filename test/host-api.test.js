@@ -1,17 +1,20 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { Readable } from "node:stream";
+import { EventEmitter } from "node:events";
 
 import { createHostApiHandler } from "../src/server/host-api.js";
 import { RuntimeError } from "../src/runtime/errors.js";
 import { JOB_STATES } from "../src/runtime/state-machine.js";
 
-class FakeRuntime {
+class FakeRuntime extends EventEmitter {
   constructor() {
+    super();
     this.jobs = new Map();
     this.approvals = [];
     this.rejections = [];
     this.pending = [];
+    this.store = new EventEmitter();
   }
 
   createJob({
@@ -45,6 +48,7 @@ class FakeRuntime {
       }
     };
     this.jobs.set(jobId, job);
+    this.store.emit("created", structuredClone(job));
     return job;
   }
 
@@ -61,8 +65,17 @@ class FakeRuntime {
     if (!job) {
       throw new RuntimeError("JOB_NOT_FOUND", `Job not found: ${jobId}`);
     }
+    const previousState = job.state;
     job.state = "running";
     job.timestamps.startedAt = new Date().toISOString();
+    this.store.emit("transition", {
+      jobId,
+      from: previousState,
+      to: job.state,
+      reason: "start",
+      at: job.timestamps.startedAt
+    });
+    this.store.emit("updated", structuredClone(job));
     return job;
   }
 
@@ -71,8 +84,17 @@ class FakeRuntime {
     if (!job) {
       throw new RuntimeError("JOB_NOT_FOUND", `Job not found: ${jobId}`);
     }
+    const previousState = job.state;
     job.state = "cancelled";
     job.timestamps.endedAt = new Date().toISOString();
+    this.store.emit("transition", {
+      jobId,
+      from: previousState,
+      to: job.state,
+      reason: "interrupt",
+      at: job.timestamps.endedAt
+    });
+    this.store.emit("updated", structuredClone(job));
     return job;
   }
 
@@ -92,13 +114,23 @@ class FakeRuntime {
     if (![JOB_STATES.FAILED, JOB_STATES.CANCELLED, JOB_STATES.COMPLETED].includes(job.state)) {
       throw new RuntimeError("JOB_NOT_TERMINAL", `Job is not terminal: ${jobId}`);
     }
+    const previousState = job.state;
     job.state = JOB_STATES.QUEUED;
+    job.hostJobId = null;
     job.threadId = null;
     job.turnId = null;
     job.resultSummary = null;
     job.artifactPaths = [];
     job.timestamps.startedAt = null;
     job.timestamps.endedAt = null;
+    this.store.emit("transition", {
+      jobId,
+      from: previousState,
+      to: job.state,
+      reason: "retry",
+      at: new Date().toISOString()
+    });
+    this.store.emit("updated", structuredClone(job));
     return job;
   }
 
@@ -177,6 +209,37 @@ async function invoke(handler, { method, url, body = null, headers = {} }) {
     headers: responseHeaders,
     body: responseBody,
     json
+  };
+}
+
+async function createMobileSession(handler, { deviceLabel = "test-phone" } = {}) {
+  const started = await invoke(handler, {
+    method: "POST",
+    url: "/api/mobile/pairing/start",
+    body: JSON.stringify({ deviceLabel })
+  });
+  assert.equal(started.statusCode, 201);
+  assert.equal(started.json.ok, true);
+  assert.equal(typeof started.json.pairing.pairingCode, "string");
+
+  const completed = await invoke(handler, {
+    method: "POST",
+    url: "/api/mobile/pairing/complete",
+    body: JSON.stringify({
+      pairingCode: started.json.pairing.pairingCode,
+      deviceLabel
+    }),
+    headers: {
+      "user-agent": "host-api-test"
+    }
+  });
+  assert.equal(completed.statusCode, 200);
+  assert.equal(completed.json.ok, true);
+  assert.equal(typeof completed.json.token, "string");
+
+  return {
+    token: completed.json.token,
+    pairingCode: started.json.pairing.pairingCode
   };
 }
 
@@ -269,6 +332,31 @@ test("intake route supports top-level transcript fallback", async () => {
   assert.equal(response.json.job.jobId, "j_voice_top_level");
   assert.equal(response.json.job.intake.mode, "text");
   assert.equal(response.json.job.inputText, "Please add tests for ./src/runtime/host-runtime.js");
+});
+
+test("intake route does not classify text-only payloads as voice and sanitizes source", async () => {
+  const runtime = new FakeRuntime();
+  const handler = createHostApiHandler({ runtime, hostId: "h_test" });
+
+  const response = await invoke(handler, {
+    method: "POST",
+    url: "/api/intake",
+    body: JSON.stringify({
+      jobId: "j_text_only_intake",
+      intake: {
+        mode: "voice",
+        text: "Fix tests in ./test/host-api.test.js",
+        source: "   ",
+        language: "en-US"
+      }
+    })
+  });
+
+  assert.equal(response.statusCode, 201);
+  assert.equal(response.json.job.jobId, "j_text_only_intake");
+  assert.equal(response.json.job.intake.mode, "text");
+  assert.equal(response.json.job.intake.source, "text");
+  assert.equal(response.json.job.inputText, "Fix tests in ./test/host-api.test.js");
 });
 
 test("intent plan route enforces delegation policy fallback", async () => {
@@ -523,6 +611,153 @@ test("health route includes effective host delegation policy", async () => {
   assert.equal(response.json.delegationPolicy.defaultMode, "multi_agent");
   assert.equal(response.json.delegationPolicy.allowMultiAgent, false);
   assert.equal(response.json.delegationPolicy.multiAgentKillSwitch, false);
+  assert.equal(response.json.mobile.enabled, true);
+});
+
+test("mobile routes return 404 when mobile control is disabled (boolean or string)", async () => {
+  const runtime = new FakeRuntime();
+  const handler = createHostApiHandler({
+    runtime,
+    hostId: "h_test",
+    getMobileConfig: () => ({ enabled: "false" })
+  });
+
+  const response = await invoke(handler, {
+    method: "POST",
+    url: "/api/mobile/pairing/start",
+    body: JSON.stringify({})
+  });
+
+  assert.equal(response.statusCode, 404);
+  assert.equal(response.json.error.code, "MOBILE_DISABLED");
+});
+
+test("mobile routes require bearer token after pairing endpoints", async () => {
+  const runtime = new FakeRuntime();
+  const handler = createHostApiHandler({ runtime, hostId: "h_test" });
+
+  const response = await invoke(handler, {
+    method: "GET",
+    url: "/api/mobile/session"
+  });
+
+  assert.equal(response.statusCode, 401);
+  assert.equal(response.json.error.code, "MOBILE_UNAUTHORIZED");
+});
+
+test("mobile pairing/session lifecycle works end-to-end", async () => {
+  const runtime = new FakeRuntime();
+  const handler = createHostApiHandler({ runtime, hostId: "h_test" });
+  const { token } = await createMobileSession(handler, { deviceLabel: "pixel-test" });
+
+  const session = await invoke(handler, {
+    method: "GET",
+    url: "/api/mobile/session",
+    headers: {
+      authorization: `Bearer ${token}`
+    }
+  });
+
+  assert.equal(session.statusCode, 200);
+  assert.equal(session.json.ok, true);
+  assert.equal(session.json.session.deviceLabel, "pixel-test");
+
+  const revoked = await invoke(handler, {
+    method: "POST",
+    url: "/api/mobile/session/revoke",
+    body: JSON.stringify({}),
+    headers: {
+      authorization: `Bearer ${token}`
+    }
+  });
+
+  assert.equal(revoked.statusCode, 202);
+  assert.equal(revoked.json.revoked, true);
+
+  const afterRevoke = await invoke(handler, {
+    method: "GET",
+    url: "/api/mobile/session",
+    headers: {
+      authorization: `Bearer ${token}`
+    }
+  });
+
+  assert.equal(afterRevoke.statusCode, 401);
+  assert.equal(afterRevoke.json.error.code, "MOBILE_UNAUTHORIZED");
+});
+
+test("mobile API proxies authenticated actions to canonical job routes", async () => {
+  const runtime = new FakeRuntime();
+  const handler = createHostApiHandler({ runtime, hostId: "h_test" });
+  const { token } = await createMobileSession(handler);
+  const authHeaders = {
+    authorization: `Bearer ${token}`
+  };
+
+  const created = await invoke(handler, {
+    method: "POST",
+    url: "/api/mobile/jobs",
+    body: JSON.stringify({
+      jobId: "j_mobile001",
+      inputText: "Implement X via mobile"
+    }),
+    headers: authHeaders
+  });
+
+  assert.equal(created.statusCode, 201);
+  assert.equal(created.json.job.jobId, "j_mobile001");
+
+  const started = await invoke(handler, {
+    method: "POST",
+    url: "/api/mobile/jobs/j_mobile001/start",
+    body: JSON.stringify({}),
+    headers: authHeaders
+  });
+
+  assert.equal(started.statusCode, 200);
+  assert.equal(started.json.job.state, JOB_STATES.RUNNING);
+});
+
+test("mobile events endpoint supports replay cursors", async () => {
+  const runtime = new FakeRuntime();
+  const handler = createHostApiHandler({ runtime, hostId: "h_test" });
+  const { token } = await createMobileSession(handler);
+  const authHeaders = {
+    authorization: `Bearer ${token}`
+  };
+
+  const firstRead = await invoke(handler, {
+    method: "GET",
+    url: "/api/mobile/events?after=0&limit=10",
+    headers: authHeaders
+  });
+
+  assert.equal(firstRead.statusCode, 200);
+  assert.equal(firstRead.json.ok, true);
+  assert.equal(Array.isArray(firstRead.json.events), true);
+  assert.equal(firstRead.json.events.length >= 2, true);
+  const afterId = firstRead.json.nextAfterId;
+
+  const created = await invoke(handler, {
+    method: "POST",
+    url: "/api/mobile/jobs",
+    body: JSON.stringify({
+      jobId: "j_mobile_evt001",
+      inputText: "Create event replay checkpoint"
+    }),
+    headers: authHeaders
+  });
+  assert.equal(created.statusCode, 201);
+
+  const secondRead = await invoke(handler, {
+    method: "GET",
+    url: `/api/mobile/events?after=${afterId}&limit=20`,
+    headers: authHeaders
+  });
+
+  assert.equal(secondRead.statusCode, 200);
+  assert.equal(secondRead.json.count >= 1, true);
+  assert.equal(secondRead.json.events.some((event) => event.jobId === "j_mobile_evt001"), true);
 });
 
 test("create/list/get job routes", async () => {
@@ -602,6 +837,20 @@ test("list jobs returns 400 for invalid pagination input", async () => {
   assert.equal(response.json.error.code, "INVALID_INPUT");
 });
 
+test("list jobs returns 400 for non-integer pagination input", async () => {
+  const runtime = new FakeRuntime();
+  const handler = createHostApiHandler({ runtime, hostId: "h_test" });
+  runtime.createJob({ jobId: "j_list_non_integer", inputText: "Anything" });
+
+  const response = await invoke(handler, {
+    method: "GET",
+    url: "/api/jobs?limit=10abc"
+  });
+
+  assert.equal(response.statusCode, 400);
+  assert.equal(response.json.error.code, "INVALID_INPUT");
+});
+
 test("start and interrupt routes", async () => {
   const runtime = new FakeRuntime();
   const handler = createHostApiHandler({ runtime, hostId: "h_test" });
@@ -630,8 +879,15 @@ test("retry route moves terminal job back to queued", async () => {
   const runtime = new FakeRuntime();
   const handler = createHostApiHandler({ runtime, hostId: "h_test" });
   runtime.createJob({ jobId: "j_retry001", inputText: "Implement Y" });
-  runtime.jobs.get("j_retry001").state = JOB_STATES.CANCELLED;
-  runtime.jobs.get("j_retry001").timestamps.endedAt = new Date().toISOString();
+  const terminalJob = runtime.jobs.get("j_retry001");
+  terminalJob.state = JOB_STATES.CANCELLED;
+  terminalJob.hostJobId = "host_prev_001";
+  terminalJob.threadId = "thread_prev_001";
+  terminalJob.turnId = "turn_prev_001";
+  terminalJob.resultSummary = "old summary";
+  terminalJob.artifactPaths = ["artifacts/old-summary.md"];
+  terminalJob.timestamps.startedAt = new Date(Date.now() - 1000).toISOString();
+  terminalJob.timestamps.endedAt = new Date().toISOString();
 
   const retried = await invoke(handler, {
     method: "POST",
@@ -642,6 +898,13 @@ test("retry route moves terminal job back to queued", async () => {
   assert.equal(retried.statusCode, 200);
   assert.equal(retried.json.job.state, JOB_STATES.QUEUED);
   assert.equal(retried.json.autoStarted, false);
+  assert.equal(retried.json.job.hostJobId, null);
+  assert.equal(retried.json.job.threadId, null);
+  assert.equal(retried.json.job.turnId, null);
+  assert.equal(retried.json.job.resultSummary, null);
+  assert.deepEqual(retried.json.job.artifactPaths, []);
+  assert.equal(retried.json.job.timestamps.startedAt, null);
+  assert.equal(retried.json.job.timestamps.endedAt, null);
 });
 
 test("retry route with startNow true auto-starts retried job", async () => {

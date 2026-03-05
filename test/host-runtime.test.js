@@ -125,6 +125,7 @@ test("retry moves terminal job back to queued and clears protocol refs", async (
     inputText: "Retry flow"
   });
   await runtime.startJob("j_test_retry");
+  runtime.store.setProtocolRefs("j_test_retry", { hostJobId: "host_123" });
   runtime.store.setResult("j_test_retry", {
     resultSummary: "completed once",
     artifactPaths: ["artifacts/old-summary.md"]
@@ -133,8 +134,12 @@ test("retry moves terminal job back to queued and clears protocol refs", async (
 
   const retried = await runtime.retryJob("j_test_retry");
   assert.equal(retried.state, JOB_STATES.QUEUED);
+  assert.equal(retried.hostJobId, null);
   assert.equal(retried.threadId, null);
   assert.equal(retried.turnId, null);
   assert.equal(retried.resultSummary, null);
   assert.deepEqual(retried.artifactPaths, []);
+  assert.equal(retried.timestamps.startedAt, null);
+  assert.equal(retried.timestamps.endedAt, null);
+  assert.ok(retried.timestamps.updatedAt);
 });
