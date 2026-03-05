@@ -227,14 +227,20 @@
 - Owner: shared
 - Size: M
 - Depends on: ADHD2-702
+- Status: done
+- Done when:
+  - host auth, isolation, and fallback edge cases are covered by host/federation tests
+  - unsafe or unready workflow/runtime states fail closed without widening privileges
 
 ### ADHD2-802 Workflow hook hardening
 - Owner: shared
 - Size: M
 - Depends on: ADHD2-703
+- Status: done
 - Done when:
   - hook output/secret hygiene guardrails are enforced
   - malformed/unsafe workflow changes fail closed for dispatch
+  - workspace hook lifecycle is covered for create/start/terminal/cleanup paths
 
 ## Phase 9: Release and Distribution
 

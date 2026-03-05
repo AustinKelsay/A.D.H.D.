@@ -1,5 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { Readable } from "node:stream";
 import { EventEmitter } from "node:events";
 
@@ -247,6 +250,25 @@ async function createMobileSession(handler, { deviceLabel = "test-phone" } = {})
     token: completed.json.token,
     pairingCode: started.json.pairing.pairingCode
   };
+}
+
+async function waitForCondition(predicate, { timeout = 2000, interval = 50 } = {}) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() <= deadline) {
+    if (predicate()) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, interval));
+  }
+  throw new Error("Timed out waiting for condition");
+}
+
+async function waitForExists(filePath, options) {
+  return waitForCondition(() => fs.existsSync(filePath), options);
+}
+
+async function waitForNotExists(filePath, options) {
+  return waitForCondition(() => !fs.existsSync(filePath), options);
 }
 
 test("intent normalize route", async () => {
@@ -806,6 +828,273 @@ test("workflow preflight blocks planning and start routes", async () => {
   });
   assert.equal(metrics.statusCode, 200);
   assert.equal(metrics.json.metrics.workflowPreflightBlocks, 2);
+});
+
+test("workflow hooks run on create, start, terminal completion, and retry cleanup", async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "adhd-hooks-"));
+  const workspaceRoot = path.join(tempDir, "workspaces");
+  const markerDir = path.join(tempDir, "markers");
+  fs.mkdirSync(markerDir, { recursive: true });
+
+  try {
+    const runtime = new FakeRuntime();
+    const handler = createHostApiHandler({
+      runtime,
+      hostId: "h_test",
+      getWorkflowWorkspacePolicy: () => ({
+        root: "workspaces",
+        rootPath: workspaceRoot,
+        requirePathContainment: true
+      }),
+      getWorkflowHookPolicy: () => ({
+        timeoutMs: 500,
+        afterCreate: `node -e 'require("node:fs").writeFileSync(process.env.ADHD_WORKSPACE_PATH + "/after_create.txt", process.env.ADHD_HOOK_NAME)'`,
+        beforeRun: `node -e 'require("node:fs").writeFileSync(process.env.ADHD_WORKSPACE_PATH + "/before_run.txt", process.env.ADHD_HOOK_NAME)'`,
+        afterRun: `node -e 'require("node:fs").writeFileSync(${JSON.stringify(path.join(markerDir, "after_run.txt"))}, process.env.ADHD_JOB_ID)'`,
+        beforeRemove: `node -e 'require("node:fs").writeFileSync(${JSON.stringify(path.join(markerDir, "before_remove.txt"))}, process.env.ADHD_JOB_ID)'`
+      })
+    });
+
+    const created = await invoke(handler, {
+      method: "POST",
+      url: "/api/jobs",
+      body: JSON.stringify({
+        jobId: "j_hook001",
+        inputText: "Implement hook lifecycle"
+      })
+    });
+    assert.equal(created.statusCode, 201);
+
+    const workspacePath = path.join(workspaceRoot, "j_hook001");
+    assert.equal(fs.existsSync(path.join(workspacePath, "after_create.txt")), true);
+
+    const started = await invoke(handler, {
+      method: "POST",
+      url: "/api/jobs/j_hook001/start",
+      body: JSON.stringify({})
+    });
+    assert.equal(started.statusCode, 200);
+    assert.equal(fs.existsSync(path.join(workspacePath, "before_run.txt")), true);
+
+    const interrupted = await invoke(handler, {
+      method: "POST",
+      url: "/api/jobs/j_hook001/interrupt",
+      body: JSON.stringify({})
+    });
+    assert.equal(interrupted.statusCode, 200);
+
+    const retried = await invoke(handler, {
+      method: "POST",
+      url: "/api/jobs/j_hook001/retry",
+      body: JSON.stringify({})
+    });
+    assert.equal(retried.statusCode, 200);
+
+    await waitForExists(path.join(markerDir, "after_run.txt"));
+    await waitForExists(path.join(markerDir, "before_remove.txt"));
+    await waitForNotExists(workspacePath);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("workflow afterRun hooks still run when mobile control is disabled", async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "adhd-hook-afterrun-"));
+  const markerPath = path.join(tempDir, "after_run.txt");
+  try {
+    const runtime = new FakeRuntime();
+    const handler = createHostApiHandler({
+      runtime,
+      hostId: "h_test",
+      getMobileConfig: () => ({ enabled: false }),
+      getWorkflowWorkspacePolicy: () => ({
+        root: "workspaces",
+        rootPath: path.join(tempDir, "workspaces"),
+        requirePathContainment: true
+      }),
+      getWorkflowHookPolicy: () => ({
+        timeoutMs: 500,
+        afterCreate: null,
+        beforeRun: null,
+        afterRun: `node -e 'require("node:fs").writeFileSync(${JSON.stringify(markerPath)}, process.env.ADHD_JOB_ID)'`,
+        beforeRemove: null
+      })
+    });
+
+    const created = await invoke(handler, {
+      method: "POST",
+      url: "/api/jobs",
+      body: JSON.stringify({
+        jobId: "j_hook_afterrun",
+        inputText: "Finish work"
+      })
+    });
+    assert.equal(created.statusCode, 201);
+
+    const started = await invoke(handler, {
+      method: "POST",
+      url: "/api/jobs/j_hook_afterrun/start",
+      body: JSON.stringify({})
+    });
+    assert.equal(started.statusCode, 200);
+
+    const interrupted = await invoke(handler, {
+      method: "POST",
+      url: "/api/jobs/j_hook_afterrun/interrupt",
+      body: JSON.stringify({})
+    });
+    assert.equal(interrupted.statusCode, 200);
+
+    await waitForExists(markerPath);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("workflow retry cleanup runs only after a successful retry", async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "adhd-hook-retry-order-"));
+  const markerPath = path.join(tempDir, "before_remove.txt");
+  try {
+    const runtime = new FakeRuntime();
+    const handler = createHostApiHandler({
+      runtime,
+      hostId: "h_test",
+      getWorkflowWorkspacePolicy: () => ({
+        root: "workspaces",
+        rootPath: path.join(tempDir, "workspaces"),
+        requirePathContainment: true
+      }),
+      getWorkflowHookPolicy: () => ({
+        timeoutMs: 500,
+        afterCreate: `node -e 'require("node:fs").mkdirSync(process.env.ADHD_WORKSPACE_PATH, { recursive: true })'`,
+        beforeRun: null,
+        afterRun: null,
+        beforeRemove: `node -e 'require("node:fs").writeFileSync(${JSON.stringify(markerPath)}, process.env.ADHD_JOB_ID)'`
+      })
+    });
+
+    const created = await invoke(handler, {
+      method: "POST",
+      url: "/api/jobs",
+      body: JSON.stringify({
+        jobId: "j_hook_retry_order",
+        inputText: "Retry safely"
+      })
+    });
+    assert.equal(created.statusCode, 201);
+
+    const workspacePath = path.join(tempDir, "workspaces", "j_hook_retry_order");
+    const originalRetryJob = runtime.retryJob.bind(runtime);
+    runtime.retryJob = async () => {
+      throw new RuntimeError("JOB_NOT_TERMINAL", "retry blocked");
+    };
+
+    const failedRetry = await invoke(handler, {
+      method: "POST",
+      url: "/api/jobs/j_hook_retry_order/retry",
+      body: JSON.stringify({})
+    });
+    assert.equal(failedRetry.statusCode, 409);
+    assert.equal(fs.existsSync(markerPath), false);
+    assert.equal(fs.existsSync(workspacePath), true);
+
+    runtime.retryJob = originalRetryJob;
+    const interrupted = await invoke(handler, {
+      method: "POST",
+      url: "/api/jobs/j_hook_retry_order/interrupt",
+      body: JSON.stringify({})
+    });
+    assert.equal(interrupted.statusCode, 200);
+
+    const successfulRetry = await invoke(handler, {
+      method: "POST",
+      url: "/api/jobs/j_hook_retry_order/retry",
+      body: JSON.stringify({})
+    });
+    assert.equal(successfulRetry.statusCode, 200);
+    await waitForExists(markerPath);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("workflow hooks fail closed on timeout during start", async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "adhd-hook-timeout-"));
+  try {
+    const runtime = new FakeRuntime();
+    runtime.createJob({ jobId: "j_hook_timeout", inputText: "Start job" });
+    const handler = createHostApiHandler({
+      runtime,
+      hostId: "h_test",
+      getWorkflowWorkspacePolicy: () => ({
+        root: "workspaces",
+        rootPath: path.join(tempDir, "workspaces"),
+        requirePathContainment: true
+      }),
+      getWorkflowHookPolicy: () => ({
+        timeoutMs: 50,
+        afterCreate: null,
+        beforeRun: `node -e 'setTimeout(() => {}, 250)'`,
+        afterRun: null,
+        beforeRemove: null
+      })
+    });
+
+    const started = await invoke(handler, {
+      method: "POST",
+      url: "/api/jobs/j_hook_timeout/start",
+      body: JSON.stringify({})
+    });
+    assert.equal(started.statusCode, 503);
+    assert.equal(started.json.error.code, "WORKFLOW_HOOK_FAILED");
+
+    const metrics = await invoke(handler, {
+      method: "GET",
+      url: "/metrics"
+    });
+    assert.equal(metrics.statusCode, 200);
+    assert.equal(metrics.json.metrics.workflowHooks.failures >= 1, true);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("workflow hook failures redact secrets and truncate output", async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "adhd-hook-sanitize-"));
+  try {
+    const runtime = new FakeRuntime();
+    runtime.createJob({ jobId: "j_hook_sanitize", inputText: "Start job" });
+    const handler = createHostApiHandler({
+      runtime,
+      hostId: "h_test",
+      getWorkflowWorkspacePolicy: () => ({
+        root: "workspaces",
+        rootPath: path.join(tempDir, "workspaces"),
+        requirePathContainment: true
+      }),
+      getWorkflowHookPolicy: () => ({
+        timeoutMs: 500,
+        afterCreate: null,
+        beforeRun: "node -e \"process.stdout.write('HEADMARK\\n' + 'x'.repeat(5000) + 'TAILMARK\\n' + 'y'.repeat(65000) + '\\nsecret=supersecret'); process.stderr.write('Bearer verysecret'); process.exit(7)\"",
+        afterRun: null,
+        beforeRemove: null
+      })
+    });
+
+    const started = await invoke(handler, {
+      method: "POST",
+      url: "/api/jobs/j_hook_sanitize/start",
+      body: JSON.stringify({})
+    });
+    assert.equal(started.statusCode, 503);
+    assert.equal(started.json.error.code, "WORKFLOW_HOOK_FAILED");
+    assert.equal(started.json.error.details.stdout.length <= 4014, true);
+    assert.match(started.json.error.details.stdout, /\.\.\.\[truncated\]$/);
+    assert.match(started.json.error.details.stderr, /Bearer \[REDACTED\]/);
+    assert.doesNotMatch(started.json.error.details.stderr, /verysecret/);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
 });
 
 test("mobile routes return 404 when mobile control is disabled (boolean or string)", async () => {

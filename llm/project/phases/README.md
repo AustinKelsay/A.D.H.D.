@@ -22,4 +22,4 @@ Track implementation from single-host baseline to multi-host orchestration.
 - Treat `WORKFLOW.md` as the repo-owned contract for prompt, runtime policy, and hooks; runtime behavior changes should flow through this contract.
 
 ## Current Milestone
-- `review-and-hardening-phase.md` is the active restart point.
+- `release-and-distribution-phase.md` is the active restart point.

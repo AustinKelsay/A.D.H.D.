@@ -985,6 +985,8 @@ export function createFederationApiHandler({
       getWorkflowStatus: config.getWorkflowStatus,
       validateWorkflowPreflight: config.validateWorkflowPreflight,
       getWorkflowStartDefaults: config.getWorkflowStartDefaults,
+      getWorkflowHookPolicy: config.getWorkflowHookPolicy,
+      getWorkflowWorkspacePolicy: config.getWorkflowWorkspacePolicy,
       refreshWorkflow: config.refreshWorkflow,
       logEvent: config.logEvent
     }));
