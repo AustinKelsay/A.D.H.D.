@@ -196,16 +196,27 @@
 - Owner: agent
 - Size: L
 - Depends on: ADHD2-602
+- Status: done
+- Done when:
+  - host outage handling is deterministic for dispatch/start/retry paths
+  - reconciliation surfaces blocked non-terminal jobs during host degradation/offline windows
+  - behavior is covered by federation route tests
 
 ### ADHD2-702 Drift and health automation
 - Owner: agent
 - Size: M
 - Depends on: ADHD2-701
+- Status: done
+- Done when:
+  - control plane and host expose structured metrics snapshots for operational debugging
+  - host workflow drift detection policy is explicit (`warn` / `block_dispatch`) and enforced
+  - compatibility drift checks are included in phase verification (`phase7:verify`)
 
 ### ADHD2-703 Workflow reload observability
 - Owner: agent
 - Size: M
 - Depends on: ADHD2-303
+- Status: done
 - Done when:
   - workflow reload success/failure and active version are visible in logs/metrics
   - operators can trigger/verify workflow refresh safely

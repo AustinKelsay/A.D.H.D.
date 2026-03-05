@@ -954,6 +954,13 @@ test("mobile API proxies authenticated actions to canonical job routes", async (
 
   assert.equal(started.statusCode, 200);
   assert.equal(started.json.job.state, JOB_STATES.RUNNING);
+
+  const metrics = await invoke(handler, {
+    method: "GET",
+    url: "/metrics"
+  });
+  assert.equal(metrics.statusCode, 200);
+  assert.equal(metrics.json.metrics.requestsTotal, 5);
 });
 
 test("mobile events endpoint supports replay cursors", async () => {

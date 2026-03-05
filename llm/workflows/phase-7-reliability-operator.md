@@ -8,6 +8,11 @@ Detect host health/workflow drift early, reconcile deterministically, and expose
 - hosts are registered/enrolled
 - control-plane auth headers are supplied when enabled
 
+## 0. Verify Phase 7 Baseline
+```bash
+npm run phase7:verify
+```
+
 ## 1. Check Control Plane Health + Drift
 ```bash
 curl -sS "http://127.0.0.1:8787/health" \
@@ -46,6 +51,9 @@ curl -sS -X POST "http://127.0.0.1:<HOST_PORT>/api/workflow/refresh" \
   -H "content-type: application/json" \
   -d '{}'
 ```
+
+If host traffic is fronted by an auth proxy, include:
+`-H "authorization: Bearer <HOST_OR_PROXY_TOKEN>"`.
 
 Expected:
 - response includes `refresh` outcome and live `workflow` status/preflight

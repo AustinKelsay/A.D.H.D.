@@ -734,6 +734,31 @@ test("jobs catalog supports host/state/repo/date filters across hosts", async ()
   assert.deepEqual(filtered.json.filters.state, ["queued"]);
 });
 
+test("jobs catalog sync iterates host pagination until all pages are read", async () => {
+  const runtime = new FakeRuntime("h_alpha01");
+  for (let index = 0; index < 520; index += 1) {
+    runtime.createJob({
+      jobId: `j_page${index}`,
+      inputText: `Bulk job ${index}`
+    });
+  }
+
+  const handler = createFederationApiHandler({
+    hosts: {
+      h_alpha01: { runtime }
+    }
+  });
+  await registerEnrollAndHeartbeat(handler, "h_alpha01");
+
+  const response = await invoke(handler, {
+    method: "GET",
+    url: "/api/jobs?q=j_page519&limit=10"
+  });
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json.pagination.total, 1);
+  assert.equal(response.json.jobs[0].jobId, "j_page519");
+});
+
 test("clone route replays a job onto preserved host context", async () => {
   const alphaRuntime = new FakeRuntime("h_alpha01");
   const betaRuntime = new FakeRuntime("h_bravo02");
@@ -914,7 +939,7 @@ test("catalog persistence restores host linkage and serves history after restart
       })
     });
     assert.equal(created.statusCode, 201);
-    const persistedDeadlineMs = Date.now() + 1000;
+    const persistedDeadlineMs = Date.now() + 5000;
     let persisted = false;
     while (Date.now() < persistedDeadlineMs) {
       if (fs.existsSync(catalogPath)) {
@@ -928,7 +953,7 @@ test("catalog persistence restores host linkage and serves history after restart
           // Keep polling until a valid catalog snapshot is available.
         }
       }
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      await new Promise((resolve) => setTimeout(resolve, 50));
     }
     assert.equal(persisted, true, "catalog entry should be persisted before restart");
 

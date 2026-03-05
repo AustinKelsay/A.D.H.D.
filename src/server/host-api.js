@@ -910,7 +910,10 @@ export function createHostApiHandler({
   }
 
   return async function handler(req, res) {
-    metrics.requestsTotal += 1;
+    if (!req.__adhdMetricsCounted) {
+      req.__adhdMetricsCounted = true;
+      metrics.requestsTotal += 1;
+    }
     const alreadyWrapped = Boolean(res.__adhdMetricsWrapped);
     if (!alreadyWrapped) {
       const originalEnd = typeof res.end === "function" ? res.end.bind(res) : null;
@@ -1122,6 +1125,7 @@ export function createHostApiHandler({
 
         // Mobile action parity: authenticated mobile routes proxy to canonical API routes.
         const proxiedPath = `/api/${parts.slice(2).join("/")}${reqUrl.search}`;
+        req.__adhdMetricsCounted = true;
         req.url = proxiedPath;
         return handler(req, res);
       }

@@ -4,8 +4,8 @@
 Source of truth for project planning, phase execution, and implementation contracts.
 
 ## Current Milestone
-- Phase 6 (run catalog) baseline is implemented.
-- Active build target is Phase 7 (reliability and observability).
+- Phase 7 (reliability and observability) baseline is implemented.
+- Active build target is Phase 8 (review and hardening).
 
 ## Folder Intent
 - `project/` - canonical product and architecture definitions.

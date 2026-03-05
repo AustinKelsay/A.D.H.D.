@@ -12,6 +12,7 @@ import {
 import { createFederationApiHandler, HOST_ID_PATTERN } from "../src/server/federation-api.js";
 import { WorkflowStore } from "../src/workflow/index.js";
 import {
+  emitStructuredEvent,
   resolveCodexCommand,
   resolveDelegationPolicy
 } from "./shared/workflow-startup-utils.mjs";
@@ -66,16 +67,6 @@ function envPositiveInt(name, defaultValue) {
     return defaultValue;
   }
   return parsed;
-}
-
-function emitStructuredEvent(event, payload = {}) {
-  process.stdout.write(
-    `${JSON.stringify({
-      type: event,
-      at: new Date().toISOString(),
-      ...payload
-    })}\n`
-  );
 }
 
 function parseHostIds() {

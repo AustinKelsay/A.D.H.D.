@@ -58,10 +58,18 @@ function cloneIntentField(value) {
     return structuredClone(value);
   } catch {
     if (Array.isArray(value)) {
-      return JSON.parse(JSON.stringify(value));
+      try {
+        return JSON.parse(JSON.stringify(value));
+      } catch {
+        return value.slice();
+      }
     }
     if (typeof value === "object") {
-      return JSON.parse(JSON.stringify(value));
+      try {
+        return JSON.parse(JSON.stringify(value));
+      } catch {
+        return { ...value };
+      }
     }
     return value;
   }

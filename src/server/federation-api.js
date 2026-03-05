@@ -26,6 +26,7 @@ const CATALOG_FLUSH_DEBOUNCE_MS = 25;
 const DEFAULT_JOB_ROUTE_CACHE_MAX_SIZE = 10000;
 const DEFAULT_JOB_ROUTE_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 const DEFAULT_JOB_ROUTE_CACHE_SWEEP_INTERVAL_MS = 60 * 1000;
+const MAX_HOST_SYNC_PAGES = 20;
 const ALLOWED_WORKFLOW_DRIFT_POLICIES = new Set(["warn", "block_dispatch"]);
 
 function nowIso() {
@@ -1483,26 +1484,39 @@ export function createFederationApiHandler({
             continue;
           }
 
-          const response = await invokeHandler(hostHandlers.get(hostId), {
-            method: "GET",
-            // TODO: follow host pagination cursor once host API supports paged sync pulls.
-            url: `/api/jobs?limit=${MAX_CATALOG_LIMIT}&offset=0`
-          });
-          if (response.statusCode !== 200 || !Array.isArray(response.json?.jobs)) {
-            continue;
-          }
-
-          for (const job of response.json.jobs) {
-            runCatalog.upsertFromJob(job, {
-              hostId,
-              source: {
-                kind: "live-sync",
-                parentJobId: null
-              }
+          let offset = 0;
+          let pagesPulled = 0;
+          while (pagesPulled < MAX_HOST_SYNC_PAGES) {
+            const response = await invokeHandler(hostHandlers.get(hostId), {
+              method: "GET",
+              url: `/api/jobs?limit=${MAX_CATALOG_LIMIT}&offset=${offset}`
             });
-            if (job?.jobId) {
-              jobRoutes.set(job.jobId, hostId);
+            if (response.statusCode !== 200 || !Array.isArray(response.json?.jobs)) {
+              break;
             }
+
+            const jobs = response.json.jobs;
+            for (const job of jobs) {
+              runCatalog.upsertFromJob(job, {
+                hostId,
+                source: {
+                  kind: "live-sync",
+                  parentJobId: null
+                }
+              });
+              if (job?.jobId) {
+                jobRoutes.set(job.jobId, hostId);
+              }
+            }
+
+            pagesPulled += 1;
+            const hasMore = response.json?.pagination?.hasMore === true;
+            const returned = Number.parseInt(String(response.json?.pagination?.returned ?? jobs.length), 10);
+            const pageSize = Number.isSafeInteger(returned) && returned > 0 ? returned : jobs.length;
+            if (!hasMore || pageSize <= 0) {
+              break;
+            }
+            offset += pageSize;
           }
         }
 

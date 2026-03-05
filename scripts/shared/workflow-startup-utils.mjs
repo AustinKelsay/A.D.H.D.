@@ -50,3 +50,13 @@ export function resolveDelegationPolicy(workflowStore, envDefaults) {
     ...workflowStore.getDelegationPolicy()
   };
 }
+
+export function emitStructuredEvent(event, payload = {}) {
+  process.stdout.write(
+    `${JSON.stringify({
+      type: event,
+      at: new Date().toISOString(),
+      ...payload
+    })}\n`
+  );
+}
