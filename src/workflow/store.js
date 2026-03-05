@@ -76,7 +76,20 @@ function asMode(value, fallback = "fallback_workers") {
 }
 
 function asPositiveInt(value, fallback) {
-  const parsed = Number.parseInt(String(value ?? ""), 10);
+  if (typeof value === "number") {
+    return Number.isSafeInteger(value) && value > 0 ? value : fallback;
+  }
+
+  if (typeof value !== "string") {
+    return fallback;
+  }
+
+  const trimmed = value.trim();
+  if (!/^\d+$/.test(trimmed)) {
+    return fallback;
+  }
+
+  const parsed = Number.parseInt(trimmed, 10);
   if (!Number.isSafeInteger(parsed) || parsed <= 0) {
     return fallback;
   }

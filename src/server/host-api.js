@@ -979,7 +979,9 @@ export function createHostApiHandler({
         }
       });
     });
+  }
 
+  if (runtime.store && typeof runtime.store.on === "function") {
     runtime.store.on("transition", (event) => {
       if (!hookRunner || !isTerminalState(event?.to)) {
         return;
@@ -1477,8 +1479,8 @@ export function createHostApiHandler({
         }
 
         const existingJob = typeof runtime.getJob === "function" ? runtime.getJob(parts[2]) : null;
-        await runHookStage("beforeRemove", existingJob, { required: false });
         let job = await runtime.retryJob(parts[2]);
+        await runHookStage("beforeRemove", job || existingJob, { required: false });
         if (body.startNow === true) {
           await runHookStage("beforeRun", job, { required: true });
           const startParams = resolveStartParams(options, body.startParams || {});

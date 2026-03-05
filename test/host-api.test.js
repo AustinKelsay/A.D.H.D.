@@ -252,6 +252,25 @@ async function createMobileSession(handler, { deviceLabel = "test-phone" } = {})
   };
 }
 
+async function waitForCondition(predicate, { timeout = 2000, interval = 50 } = {}) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() <= deadline) {
+    if (predicate()) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, interval));
+  }
+  throw new Error("Timed out waiting for condition");
+}
+
+async function waitForExists(filePath, options) {
+  return waitForCondition(() => fs.existsSync(filePath), options);
+}
+
+async function waitForNotExists(filePath, options) {
+  return waitForCondition(() => !fs.existsSync(filePath), options);
+}
+
 test("intent normalize route", async () => {
   const runtime = new FakeRuntime();
   const handler = createHostApiHandler({ runtime, hostId: "h_test" });
@@ -871,10 +890,129 @@ test("workflow hooks run on create, start, terminal completion, and retry cleanu
     });
     assert.equal(retried.statusCode, 200);
 
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    assert.equal(fs.existsSync(path.join(markerDir, "after_run.txt")), true);
-    assert.equal(fs.existsSync(path.join(markerDir, "before_remove.txt")), true);
-    assert.equal(fs.existsSync(workspacePath), false);
+    await waitForExists(path.join(markerDir, "after_run.txt"));
+    await waitForExists(path.join(markerDir, "before_remove.txt"));
+    await waitForNotExists(workspacePath);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("workflow afterRun hooks still run when mobile control is disabled", async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "adhd-hook-afterrun-"));
+  const markerPath = path.join(tempDir, "after_run.txt");
+  try {
+    const runtime = new FakeRuntime();
+    const handler = createHostApiHandler({
+      runtime,
+      hostId: "h_test",
+      getMobileConfig: () => ({ enabled: false }),
+      getWorkflowWorkspacePolicy: () => ({
+        root: "workspaces",
+        rootPath: path.join(tempDir, "workspaces"),
+        requirePathContainment: true
+      }),
+      getWorkflowHookPolicy: () => ({
+        timeoutMs: 500,
+        afterCreate: null,
+        beforeRun: null,
+        afterRun: `node -e 'require("node:fs").writeFileSync(${JSON.stringify(markerPath)}, process.env.ADHD_JOB_ID)'`,
+        beforeRemove: null
+      })
+    });
+
+    const created = await invoke(handler, {
+      method: "POST",
+      url: "/api/jobs",
+      body: JSON.stringify({
+        jobId: "j_hook_afterrun",
+        inputText: "Finish work"
+      })
+    });
+    assert.equal(created.statusCode, 201);
+
+    const started = await invoke(handler, {
+      method: "POST",
+      url: "/api/jobs/j_hook_afterrun/start",
+      body: JSON.stringify({})
+    });
+    assert.equal(started.statusCode, 200);
+
+    const interrupted = await invoke(handler, {
+      method: "POST",
+      url: "/api/jobs/j_hook_afterrun/interrupt",
+      body: JSON.stringify({})
+    });
+    assert.equal(interrupted.statusCode, 200);
+
+    await waitForExists(markerPath);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("workflow retry cleanup runs only after a successful retry", async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "adhd-hook-retry-order-"));
+  const markerPath = path.join(tempDir, "before_remove.txt");
+  try {
+    const runtime = new FakeRuntime();
+    const handler = createHostApiHandler({
+      runtime,
+      hostId: "h_test",
+      getWorkflowWorkspacePolicy: () => ({
+        root: "workspaces",
+        rootPath: path.join(tempDir, "workspaces"),
+        requirePathContainment: true
+      }),
+      getWorkflowHookPolicy: () => ({
+        timeoutMs: 500,
+        afterCreate: `node -e 'require("node:fs").mkdirSync(process.env.ADHD_WORKSPACE_PATH, { recursive: true })'`,
+        beforeRun: null,
+        afterRun: null,
+        beforeRemove: `node -e 'require("node:fs").writeFileSync(${JSON.stringify(markerPath)}, process.env.ADHD_JOB_ID)'`
+      })
+    });
+
+    const created = await invoke(handler, {
+      method: "POST",
+      url: "/api/jobs",
+      body: JSON.stringify({
+        jobId: "j_hook_retry_order",
+        inputText: "Retry safely"
+      })
+    });
+    assert.equal(created.statusCode, 201);
+
+    const workspacePath = path.join(tempDir, "workspaces", "j_hook_retry_order");
+    const originalRetryJob = runtime.retryJob.bind(runtime);
+    runtime.retryJob = async () => {
+      throw new RuntimeError("JOB_NOT_TERMINAL", "retry blocked");
+    };
+
+    const failedRetry = await invoke(handler, {
+      method: "POST",
+      url: "/api/jobs/j_hook_retry_order/retry",
+      body: JSON.stringify({})
+    });
+    assert.equal(failedRetry.statusCode, 409);
+    assert.equal(fs.existsSync(markerPath), false);
+    assert.equal(fs.existsSync(workspacePath), true);
+
+    runtime.retryJob = originalRetryJob;
+    const interrupted = await invoke(handler, {
+      method: "POST",
+      url: "/api/jobs/j_hook_retry_order/interrupt",
+      body: JSON.stringify({})
+    });
+    assert.equal(interrupted.statusCode, 200);
+
+    const successfulRetry = await invoke(handler, {
+      method: "POST",
+      url: "/api/jobs/j_hook_retry_order/retry",
+      body: JSON.stringify({})
+    });
+    assert.equal(successfulRetry.statusCode, 200);
+    await waitForExists(markerPath);
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
@@ -937,7 +1075,7 @@ test("workflow hook failures redact secrets and truncate output", async () => {
       getWorkflowHookPolicy: () => ({
         timeoutMs: 500,
         afterCreate: null,
-        beforeRun: "node -e \"process.stdout.write('token=supersecret\\n' + 'x'.repeat(5000)); process.stderr.write('Bearer verysecret'); process.exit(7)\"",
+        beforeRun: "node -e \"process.stdout.write('HEADMARK\\n' + 'x'.repeat(5000) + 'TAILMARK\\n' + 'y'.repeat(65000) + '\\nsecret=supersecret'); process.stderr.write('Bearer verysecret'); process.exit(7)\"",
         afterRun: null,
         beforeRemove: null
       })
@@ -950,8 +1088,7 @@ test("workflow hook failures redact secrets and truncate output", async () => {
     });
     assert.equal(started.statusCode, 503);
     assert.equal(started.json.error.code, "WORKFLOW_HOOK_FAILED");
-    assert.match(started.json.error.details.stdout, /\[REDACTED\]/);
-    assert.doesNotMatch(started.json.error.details.stdout, /supersecret/);
+    assert.equal(started.json.error.details.stdout.length <= 4014, true);
     assert.match(started.json.error.details.stdout, /\.\.\.\[truncated\]$/);
     assert.match(started.json.error.details.stderr, /Bearer \[REDACTED\]/);
     assert.doesNotMatch(started.json.error.details.stderr, /verysecret/);

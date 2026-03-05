@@ -184,3 +184,29 @@ prompt
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
 });
+
+test("WorkflowStore rejects hooks.timeout_ms with non-integer suffixes", async () => {
+  const tempDir = makeTempDir();
+  try {
+    writeWorkflowFile(tempDir, `---
+hooks:
+  timeout_ms: "50ms"
+codex:
+  command: "codex app-server"
+---
+prompt
+`);
+
+    const store = new WorkflowStore({
+      repoRoot: tempDir,
+      cwd: tempDir
+    });
+    const refresh = await store.refreshAsync();
+
+    assert.equal(refresh.ok, false);
+    assert.equal(refresh.error.code, "WORKFLOW_INVALID");
+    assert.equal(refresh.error.details.field, "hooks.timeout_ms");
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});

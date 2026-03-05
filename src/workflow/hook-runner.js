@@ -6,6 +6,7 @@ import { RuntimeError } from "../runtime/errors.js";
 
 const DEFAULT_OUTPUT_LIMIT = 4000;
 const DEFAULT_KILL_GRACE_MS = 250;
+const MAX_CAPTURE_BYTES = 64 * 1024;
 
 function sanitizeText(raw, maxChars = DEFAULT_OUTPUT_LIMIT) {
   if (typeof raw !== "string" || !raw.length) {
@@ -93,13 +94,17 @@ async function runCommand(command, {
       stdio: ["ignore", "pipe", "pipe"]
     });
 
-    let stdout = "";
-    let stderr = "";
+    let stdout = Buffer.alloc(0);
+    let stderr = Buffer.alloc(0);
     let timedOut = false;
 
     const pushOutput = (target, chunk) => {
-      const text = Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk);
-      return `${target}${text}`;
+      const incoming = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk), "utf8");
+      const combined = Buffer.concat([target, incoming], target.length + incoming.length);
+      if (combined.length <= MAX_CAPTURE_BYTES) {
+        return combined;
+      }
+      return combined.subarray(combined.length - MAX_CAPTURE_BYTES);
     };
 
     child.stdout.on("data", (chunk) => {
@@ -126,8 +131,8 @@ async function runCommand(command, {
         code,
         signal,
         timedOut,
-        stdout,
-        stderr
+        stdout: stdout.toString("utf8"),
+        stderr: stderr.toString("utf8")
       });
     });
   });
