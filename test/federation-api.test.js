@@ -201,11 +201,27 @@ async function invoke(handler, { method, url, body = null, headers = {} }) {
       }
     };
 
-    Promise.resolve(handler(req, res)).then(() => {
-      if (!ended) {
-        res.end();
-      }
-    });
+    Promise.resolve(handler(req, res))
+      .then(() => {
+        if (!ended) {
+          res.end();
+        }
+      })
+      .catch((error) => {
+        if (ended) {
+          return;
+        }
+        responseStatusCode = 500;
+        res.end(
+          JSON.stringify({
+            ok: false,
+            error: {
+              code: error?.code || "INTERNAL_ERROR",
+              message: error?.message || "Unhandled test invoke error"
+            }
+          })
+        );
+      });
   });
 
   await done;
@@ -579,4 +595,60 @@ test("invalid hostId format is rejected for register and dispatch", async () => 
   });
   assert.equal(badDispatch.statusCode, 400);
   assert.equal(badDispatch.json.error.code, "INVALID_INPUT");
+});
+
+test("dispatch to enrolled but unconfigured host returns HOST_NOT_READY as 503", async () => {
+  const handler = createFederationApiHandler({
+    hosts: {}
+  });
+
+  await registerEnrollAndHeartbeat(handler, "h_charlie03");
+  const dispatch = await invoke(handler, {
+    method: "POST",
+    url: "/api/jobs",
+    body: JSON.stringify({
+      hostId: "h_charlie03",
+      inputText: "Attempt dispatch"
+    })
+  });
+
+  assert.equal(dispatch.statusCode, 503);
+  assert.equal(dispatch.json.error.code, "HOST_NOT_READY");
+});
+
+test("malformed path encoding returns INVALID_INPUT", async () => {
+  const handler = createFederationApiHandler({
+    hosts: {
+      h_alpha01: { runtime: new FakeRuntime("h_alpha01") }
+    }
+  });
+
+  const response = await invoke(handler, {
+    method: "GET",
+    url: "/api/hosts/%E0%A4%A"
+  });
+
+  assert.equal(response.statusCode, 400);
+  assert.equal(response.json.error.code, "INVALID_INPUT");
+});
+
+test("oversized request body is rejected early", async () => {
+  const handler = createFederationApiHandler({
+    hosts: {
+      h_alpha01: { runtime: new FakeRuntime("h_alpha01") }
+    }
+  });
+
+  const oversized = "x".repeat(5 * 1024 * 1024 + 1);
+  const response = await invoke(handler, {
+    method: "POST",
+    url: "/api/hosts/register",
+    body: JSON.stringify({
+      hostId: "h_alpha01",
+      displayName: oversized
+    })
+  });
+
+  assert.equal(response.statusCode, 400);
+  assert.equal(response.json.error.code, "INVALID_INPUT");
 });

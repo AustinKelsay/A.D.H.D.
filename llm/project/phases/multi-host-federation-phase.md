@@ -48,6 +48,10 @@ Enable one ADHD control plane to orchestrate multiple host machines.
   - Returns one host record.
 - `POST /api/jobs` (control-plane)
   - Requires `hostId`; routes intake/create to that specific host.
+- `GET /api/jobs` (control-plane aggregation)
+  - Aggregates jobs across configured hosts.
+  - Supports optional `hostId` query filter to limit results to one host.
+  - Returns host-bound job records (including `hostId`) for control-plane views.
 - `POST /api/jobs/:jobId/start|interrupt|retry`
   - Routes control actions to routed host.
 - `POST /api/hosts/reconcile`

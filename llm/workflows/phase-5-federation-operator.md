@@ -44,7 +44,7 @@ curl -sS -X POST http://127.0.0.1:8787/api/hosts/h_alpha01/enroll \
     },
     "compatibility": {
       "status": "compatible",
-      "checkedAt": "2026-03-05T00:00:00Z",
+      "checkedAt": "<ISO_TIMESTAMP>",
       "missingMethods": []
     }
   }'

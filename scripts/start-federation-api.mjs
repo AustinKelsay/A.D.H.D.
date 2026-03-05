@@ -10,6 +10,8 @@ import {
 } from "../src/runtime/index.js";
 import { createFederationApiHandler } from "../src/server/federation-api.js";
 
+const HOST_ID_PATTERN = /^h_[a-z0-9]{6,}$/;
+
 function envBoolean(name, defaultValue = false) {
   const value = process.env[name];
   if (value === undefined) {
@@ -46,14 +48,50 @@ function envPositiveInt(name, defaultValue) {
 
 function parseHostIds() {
   const source = process.env.ADHD_FED_HOSTS || "h_alpha01,h_bravo02";
-  const ids = source
+  const rawIds = source
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean);
-  if (ids.length === 0) {
+
+  if (rawIds.length === 0) {
     throw new Error("ADHD_FED_HOSTS must contain at least one host id.");
   }
+
+  const invalid = rawIds.filter((hostId) => !HOST_ID_PATTERN.test(hostId));
+  if (invalid.length > 0) {
+    throw new Error(
+      `Invalid ADHD_FED_HOSTS entries: ${invalid.join(", ")} (expected ^h_[a-z0-9]{6,}$)`
+    );
+  }
+
+  const seen = new Set();
+  const ids = [];
+  for (const hostId of rawIds) {
+    if (seen.has(hostId)) {
+      continue;
+    }
+    seen.add(hostId);
+    ids.push(hostId);
+  }
+
+  if (ids.length === 0) {
+    throw new Error("ADHD_FED_HOSTS has no valid unique host ids.");
+  }
   return ids;
+}
+
+function parsePort() {
+  const rawPort = process.env.PORT ?? "8787";
+  const normalized = String(rawPort).trim();
+  if (!/^\d+$/.test(normalized)) {
+    throw new Error(`Invalid PORT: ${rawPort}`);
+  }
+
+  const port = Number.parseInt(normalized, 10);
+  if (!Number.isInteger(port) || port < 0 || port > 65535) {
+    throw new Error(`Invalid PORT: ${rawPort}`);
+  }
+  return port;
 }
 
 async function initializeHostRuntime({
@@ -134,7 +172,7 @@ async function initializeHostRuntime({
 }
 
 async function main() {
-  const port = Number.parseInt(process.env.PORT || "8787", 10);
+  const port = parsePort();
   const skipInitialize = envBoolean("ADHD_SKIP_INITIALIZE", false);
   const rpcOutgoingMode = process.env.ADHD_RPC_OUTGOING_MODE || "framed";
   const hostIds = parseHostIds();

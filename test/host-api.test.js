@@ -413,6 +413,32 @@ test("intent plan route treats string capability false as missing multi-agent su
   assert.equal(response.json.plan.delegation.reasonCode, "capability-missing");
 });
 
+test("intent plan route treats unknown capability string as default false", async () => {
+  const runtime = new FakeRuntime();
+  const handler = createHostApiHandler({
+    runtime,
+    hostId: "h_test",
+    getHostCapabilities: () => ({ multi_agent: "disabled" })
+  });
+
+  const response = await invoke(handler, {
+    method: "POST",
+    url: "/api/intent/plan",
+    body: JSON.stringify({
+      inputText: "Open pull request and merge release",
+      requestedMode: "multi_agent",
+      delegationPolicy: {
+        allowMultiAgent: true,
+        multiAgentKillSwitch: false
+      }
+    })
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json.plan.delegation.selectedMode, "fallback_workers");
+  assert.equal(response.json.plan.delegation.reasonCode, "capability-missing");
+});
+
 test("intent plan route returns INVALID_CONFIG when host capabilities are not plain objects", async () => {
   const runtime = new FakeRuntime();
   const handler = createHostApiHandler({
@@ -589,6 +615,33 @@ test("host default delegation kill switch cannot be bypassed per request", async
   assert.equal(response.statusCode, 200);
   assert.equal(response.json.plan.delegation.selectedMode, "fallback_workers");
   assert.equal(response.json.plan.delegation.killSwitchApplied, true);
+});
+
+test("unknown kill-switch string in host policy falls back to default false", async () => {
+  const runtime = new FakeRuntime();
+  const handler = createHostApiHandler({
+    runtime,
+    hostId: "h_test",
+    getHostCapabilities: () => ({ multi_agent: true }),
+    getDelegationPolicy: () => ({
+      defaultMode: "multi_agent",
+      allowMultiAgent: true,
+      multiAgentKillSwitch: "disabled"
+    })
+  });
+
+  const response = await invoke(handler, {
+    method: "POST",
+    url: "/api/intent/plan",
+    body: JSON.stringify({
+      inputText: "Open pull request and merge release",
+      requestedMode: "multi_agent"
+    })
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json.plan.delegation.selectedMode, "multi_agent");
+  assert.equal(response.json.plan.delegation.killSwitchApplied, false);
 });
 
 test("health route includes effective host delegation policy", async () => {

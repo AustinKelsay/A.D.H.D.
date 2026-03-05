@@ -471,6 +471,7 @@ function parseBooleanFlag(value, defaultValue = false) {
     if (["true", "1", "on", "yes"].includes(normalized)) {
       return true;
     }
+    return defaultValue;
   }
   return Boolean(value);
 }

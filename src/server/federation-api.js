@@ -14,6 +14,7 @@ const NON_TERMINAL_STATES = new Set([
   "running",
   "summarizing"
 ]);
+const MAX_JSON_BODY_BYTES = 5 * 1024 * 1024;
 
 function nowIso() {
   return new Date().toISOString();
@@ -89,7 +90,12 @@ function json(res, statusCode, payload) {
 
 async function readJsonBody(req) {
   const chunks = [];
+  let totalSize = 0;
   for await (const chunk of req) {
+    totalSize += chunk.length;
+    if (totalSize > MAX_JSON_BODY_BYTES) {
+      throw new RuntimeError("INVALID_INPUT", "Request body too large");
+    }
     chunks.push(chunk);
   }
 
@@ -127,7 +133,18 @@ function parseBearerToken(authHeader = "") {
 }
 
 function pathParts(reqUrl) {
-  return reqUrl.pathname.split("/").filter(Boolean).map(decodeURIComponent);
+  return reqUrl.pathname
+    .split("/")
+    .filter(Boolean)
+    .map((part) => {
+      try {
+        return decodeURIComponent(part);
+      } catch (error) {
+        throw new RuntimeError("INVALID_INPUT", `Invalid URL path segment encoding: ${part}`, {
+          cause: error?.message || "decode-failed"
+        });
+      }
+    });
 }
 
 async function invokeHandler(handler, { method, url, body = null, headers = {} }) {
@@ -212,8 +229,11 @@ function statusForErrorCode(code) {
   if (code === "HOST_NOT_FOUND" || code === "JOB_NOT_FOUND") {
     return 404;
   }
-  if (code === "HOST_NOT_READY" || code === "HOST_UNAUTHORIZED") {
+  if (code === "HOST_UNAUTHORIZED") {
     return 401;
+  }
+  if (code === "HOST_NOT_READY") {
+    return 503;
   }
   if (code === "HOST_REVOKED" || code === "HOST_NOT_ENROLLED") {
     return 409;
@@ -355,10 +375,10 @@ export function createFederationApiHandler({
   };
 
   return async function handler(req, res) {
-    const reqUrl = new URL(req.url, "http://127.0.0.1");
-    const parts = pathParts(reqUrl);
-
     try {
+      const reqUrl = new URL(req.url, "http://127.0.0.1");
+      const parts = pathParts(reqUrl);
+
       if (req.method === "GET" && reqUrl.pathname === "/health") {
         for (const record of hostRecords.values()) {
           refreshHostHeartbeat(record);
@@ -420,11 +440,13 @@ export function createFederationApiHandler({
           throw new RuntimeError("HOST_UNAUTHORIZED", "Invalid enrollment token");
         }
 
+        const enrolledAt = nowIso();
         record.auth.status = "enrolled";
         record.auth.tokenId = `tok_${randomBytes(6).toString("hex")}`;
+        record.heartbeat.lastSeenAt = enrolledAt;
         record.capabilities = normalizeCapabilities(body.capabilities);
         record.compatibility = normalizeCompatibility(body.compatibility);
-        record.updatedAt = nowIso();
+        record.updatedAt = enrolledAt;
         refreshHostHeartbeat(record);
 
         const hostToken = `hst_${randomBytes(20).toString("hex")}`;

@@ -56,6 +56,15 @@ function generateSessionToken() {
   return `ms_${randomBytes(18).toString("hex")}`;
 }
 
+function pruneMapByExpiry(map, expiresAtKey, nowMs) {
+  for (const [key, entry] of map.entries()) {
+    const expiresAtMs = Date.parse(entry?.[expiresAtKey]);
+    if (!Number.isFinite(expiresAtMs) || expiresAtMs <= nowMs) {
+      map.delete(key);
+    }
+  }
+}
+
 export class MobileControlManager {
   constructor({
     pairingTtlMs = 5 * 60 * 1000,
@@ -159,12 +168,7 @@ export class MobileControlManager {
   }
 
   sweepExpiredEntries(nowMs = Date.now()) {
-    for (const [key, pairing] of this.pairings.entries()) {
-      const expiresAtMs = Date.parse(pairing.expiresAt);
-      if (!Number.isFinite(expiresAtMs) || expiresAtMs <= nowMs) {
-        this.pairings.delete(key);
-      }
-    }
+    pruneMapByExpiry(this.pairings, "expiresAt", nowMs);
 
     for (const [token, session] of this.sessions.entries()) {
       const expiresAtMs = Date.parse(session.expiresAt);
@@ -175,12 +179,7 @@ export class MobileControlManager {
   }
 
   pruneExpiredPairings(nowMs = Date.now()) {
-    for (const [key, pairing] of this.pairings.entries()) {
-      const expiresAtMs = Date.parse(pairing.expiresAt);
-      if (!Number.isFinite(expiresAtMs) || expiresAtMs <= nowMs) {
-        this.pairings.delete(key);
-      }
-    }
+    pruneMapByExpiry(this.pairings, "expiresAt", nowMs);
   }
 
   enforcePairingCapacity() {
