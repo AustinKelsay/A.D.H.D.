@@ -182,7 +182,7 @@ async function initializeHostRuntime({
   }
 
   runtime.on("approvalRequested", (event) => {
-    emitStructuredEvent("approvalRequested", { hostId, ...event });
+    emitStructuredEvent("approvalRequested", { ...(event || {}), hostId });
   });
 
   return {
@@ -200,7 +200,7 @@ async function initializeHostRuntime({
       validateWorkflowPreflight: () => workflowStore.preflight(),
       getWorkflowStartDefaults: () => workflowStore.getStartDefaults(),
       refreshWorkflow: () => workflowStore.refreshAsync(),
-      logEvent: (event) => emitStructuredEvent("hostApiTelemetry", { hostId, ...event })
+      logEvent: (event) => emitStructuredEvent("hostApiTelemetry", { ...(event || {}), hostId })
     },
     runtimeStatus
   };
@@ -232,6 +232,7 @@ async function main() {
     allowMultiAgent: envBoolean("ADHD_DELEGATION_ALLOW_MULTI_AGENT", true),
     multiAgentKillSwitch: envBoolean("ADHD_MULTI_AGENT_KILL_SWITCH", false)
   };
+  const resolvedWorkflowDriftPolicy = envWorkflowDriftPolicy("ADHD_WORKFLOW_DRIFT_POLICY", "warn");
   const mobileRuntimeConfig = {
     enabled: envBoolean("ADHD_MOBILE_ENABLED", true),
     pairingTtlMs: envPositiveInt("ADHD_MOBILE_PAIRING_TTL_MS", 5 * 60 * 1000),
@@ -266,7 +267,7 @@ async function main() {
     heartbeatDegradedMs: envPositiveInt("ADHD_HEARTBEAT_DEGRADED_MS", 15000),
     heartbeatOfflineMs: envPositiveInt("ADHD_HEARTBEAT_OFFLINE_MS", 30000),
     expectedWorkflowHash: workflowStore.status().contentHash,
-    workflowDriftPolicy: envWorkflowDriftPolicy("ADHD_WORKFLOW_DRIFT_POLICY", "warn"),
+    workflowDriftPolicy: resolvedWorkflowDriftPolicy,
     logEvent: (event) => emitStructuredEvent("federationTelemetry", event)
   });
 
@@ -318,7 +319,7 @@ async function main() {
         hostCapabilities: defaultHostCapabilities,
         delegationPolicy: resolveDelegationPolicy(workflowStore, envDelegationPolicy),
         workflow: workflowStore.status(),
-        workflowDriftPolicy: envWorkflowDriftPolicy("ADHD_WORKFLOW_DRIFT_POLICY", "warn"),
+        workflowDriftPolicy: resolvedWorkflowDriftPolicy,
         codexPolicy: workflowStore.getCodexPolicy(),
         mobile: mobileRuntimeConfig
       },

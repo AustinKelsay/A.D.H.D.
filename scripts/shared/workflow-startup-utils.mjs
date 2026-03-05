@@ -52,11 +52,14 @@ export function resolveDelegationPolicy(workflowStore, envDefaults) {
 }
 
 export function emitStructuredEvent(event, payload = {}) {
+  const safePayload = payload && typeof payload === "object" && !Array.isArray(payload)
+    ? payload
+    : {};
   process.stdout.write(
     `${JSON.stringify({
+      ...safePayload,
       type: event,
-      at: new Date().toISOString(),
-      ...payload
+      at: new Date().toISOString()
     })}\n`
   );
 }

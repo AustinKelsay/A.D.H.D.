@@ -395,6 +395,18 @@ test("control-plane auth hook blocks privileged routes without operator token", 
   assert.equal(unauthorizedClone.json.error.code, "CONTROL_PLANE_UNAUTHORIZED");
 });
 
+test("invalid workflowDriftPolicy fails fast with INVALID_CONFIG", async () => {
+  assert.throws(
+    () => createFederationApiHandler({
+      hosts: {
+        h_alpha01: { runtime: new FakeRuntime("h_alpha01") }
+      },
+      workflowDriftPolicy: " BLOCK_IF_DRIFT "
+    }),
+    (error) => error instanceof RuntimeError && error.code === "INVALID_CONFIG"
+  );
+});
+
 test("enrollment token expires based on configured ttl", async () => {
   let nowMs = Date.now();
   const handler = createFederationApiHandler({
@@ -1032,6 +1044,45 @@ test("offline hosts block dispatch and start actions deterministically", async (
   assert.equal(reconcile.json.transitions.some((entry) => entry.jobId === "j_fed_offline"), true);
 });
 
+test("reconcile includes routes even when job-route cache ttl has expired", async () => {
+  const runtime = new FakeRuntime("h_alpha01");
+  let mockTime = Date.now();
+  const handler = createFederationApiHandler({
+    hosts: {
+      h_alpha01: { runtime }
+    },
+    heartbeatDegradedMs: 5,
+    heartbeatOfflineMs: 10,
+    jobRouteCacheTtlMs: 5,
+    getNow: () => mockTime
+  });
+
+  await registerEnrollAndHeartbeat(handler, "h_alpha01");
+  const created = await invoke(handler, {
+    method: "POST",
+    url: "/api/jobs",
+    body: JSON.stringify({
+      hostId: "h_alpha01",
+      jobId: "j_route_ttl001",
+      inputText: "should still be reconciled after route ttl"
+    })
+  });
+  assert.equal(created.statusCode, 201);
+
+  mockTime += 20;
+
+  const reconcile = await invoke(handler, {
+    method: "POST",
+    url: "/api/hosts/reconcile",
+    body: JSON.stringify({})
+  });
+  assert.equal(reconcile.statusCode, 200);
+  assert.equal(
+    reconcile.json.transitions.some((entry) => entry.jobId === "j_route_ttl001"),
+    true
+  );
+});
+
 test("revoked host cannot accept new dispatches", async () => {
   const runtime = new FakeRuntime("h_alpha01");
   const handler = createFederationApiHandler({
@@ -1175,6 +1226,56 @@ test("dispatch to enrolled but unconfigured host returns HOST_NOT_READY as 503",
 
   assert.equal(dispatch.statusCode, 503);
   assert.equal(dispatch.json.error.code, "HOST_NOT_READY");
+});
+
+test("start route on unconfigured host returns HOST_NOT_READY instead of 500", async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "adhd-fed-host-not-ready-"));
+  const catalogPath = path.join(tempDir, "catalog.json");
+  const nowIso = new Date().toISOString();
+  fs.writeFileSync(catalogPath, JSON.stringify({
+    version: "run-catalog.v1",
+    updatedAt: nowIso,
+    entries: [
+      {
+        catalogVersion: "run-catalog.v1",
+        jobId: "j_unconfigured001",
+        hostId: "h_charlie03",
+        state: JOB_STATES.QUEUED,
+        timestamps: {
+          createdAt: nowIso,
+          updatedAt: nowIso
+        },
+        job: {
+          jobId: "j_unconfigured001",
+          hostId: "h_charlie03",
+          state: JOB_STATES.QUEUED,
+          timestamps: {
+            createdAt: nowIso,
+            updatedAt: nowIso
+          }
+        }
+      }
+    ]
+  }), "utf8");
+
+  try {
+    const handler = createFederationApiHandler({
+      hosts: {},
+      catalogStorePath: catalogPath
+    });
+
+    await registerEnrollAndHeartbeat(handler, "h_charlie03");
+    const response = await invoke(handler, {
+      method: "POST",
+      url: "/api/jobs/j_unconfigured001/start",
+      body: JSON.stringify({})
+    });
+
+    assert.equal(response.statusCode, 503);
+    assert.equal(response.json.error.code, "HOST_NOT_READY");
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
 });
 
 test("malformed path encoding returns INVALID_INPUT", async () => {

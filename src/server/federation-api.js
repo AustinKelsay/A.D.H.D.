@@ -835,8 +835,10 @@ function createJobRouteCache({
     delete(jobId) {
       entries.delete(jobId);
     },
-    entries(nowMs = readNowMs()) {
-      prune(nowMs);
+    entries(nowMs = readNowMs(), includeExpired = false) {
+      if (includeExpired !== true) {
+        prune(nowMs);
+      }
       return [...entries.entries()].map(([jobId, entry]) => [jobId, entry.hostId]);
     },
     prune
@@ -871,9 +873,19 @@ export function createFederationApiHandler({
   const safeExpectedWorkflowHash = typeof expectedWorkflowHash === "string" && expectedWorkflowHash.trim()
     ? expectedWorkflowHash.trim()
     : null;
-  const safeWorkflowDriftPolicy = ALLOWED_WORKFLOW_DRIFT_POLICIES.has(workflowDriftPolicy)
-    ? workflowDriftPolicy
-    : "warn";
+  const normalizedWorkflowDriftPolicy = typeof workflowDriftPolicy === "string"
+    ? workflowDriftPolicy.trim().toLowerCase()
+    : workflowDriftPolicy;
+  if (!ALLOWED_WORKFLOW_DRIFT_POLICIES.has(normalizedWorkflowDriftPolicy)) {
+    throw new RuntimeError(
+      "INVALID_CONFIG",
+      `workflowDriftPolicy must be one of: ${[...ALLOWED_WORKFLOW_DRIFT_POLICIES].join(", ")}`,
+      {
+        provided: workflowDriftPolicy
+      }
+    );
+  }
+  const safeWorkflowDriftPolicy = normalizedWorkflowDriftPolicy;
   const metrics = {
     startedAt: nowIsoFromClock(),
     requestsTotal: 0,
@@ -1607,8 +1619,15 @@ export function createFederationApiHandler({
         if (action === "start" || action === "retry") {
           assertWorkflowDriftPolicy(hostRecord, { action: `job-${action}` });
         }
+        const hostHandler = hostHandlers.get(hostId);
+        if (!hostHandler) {
+          throw new RuntimeError("HOST_NOT_READY", `Host handler not ready for host ${hostId}`, {
+            hostId,
+            status: hostRecord.heartbeat.status
+          });
+        }
 
-        const response = await invokeHandler(hostHandlers.get(hostId), {
+        const response = await invokeHandler(hostHandler, {
           method: "POST",
           url: `/api/jobs/${encodeURIComponent(jobId)}/${action}`,
           body: JSON.stringify(body || {})
@@ -1846,7 +1865,7 @@ export function createFederationApiHandler({
         });
         incCounter("reconciliations");
         const transitions = [];
-        for (const [jobId, hostId] of jobRoutes.entries()) {
+        for (const [jobId, hostId] of jobRoutes.entries(readNowMs(), true)) {
           const hostRecord = hostRecords.get(hostId);
           if (!hostRecord) {
             continue;

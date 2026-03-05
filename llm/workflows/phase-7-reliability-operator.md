@@ -48,12 +48,12 @@ Expected:
 ## 4. Trigger Host Workflow Refresh
 ```bash
 curl -sS -X POST "http://127.0.0.1:<HOST_PORT>/api/workflow/refresh" \
+  -H "authorization: Bearer <HOST_OR_PROXY_TOKEN>" \
   -H "content-type: application/json" \
   -d '{}'
 ```
 
-If host traffic is fronted by an auth proxy, include:
-`-H "authorization: Bearer <HOST_OR_PROXY_TOKEN>"`.
+If your host endpoint does not require auth, you can omit the authorization header.
 
 Expected:
 - response includes `refresh` outcome and live `workflow` status/preflight
