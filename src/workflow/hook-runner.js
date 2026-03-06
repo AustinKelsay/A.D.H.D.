@@ -117,9 +117,11 @@ async function runCommand(command, {
 
     const timeout = setTimeout(() => {
       timedOut = true;
-      child.kill("SIGTERM");
+      if (child.exitCode === null) {
+        child.kill("SIGTERM");
+      }
       setTimeout(() => {
-        if (!child.killed) {
+        if (child.exitCode === null) {
           child.kill("SIGKILL");
         }
       }, DEFAULT_KILL_GRACE_MS);

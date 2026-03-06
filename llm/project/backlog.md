@@ -248,10 +248,16 @@
 - Owner: shared
 - Size: M
 - Depends on: ADHD2-801
+- Status: done
+- Done when:
+  - operators have a single runbook for first host bootstrap, upgrade, and rollback
+  - release verification includes control-plane/host capability checks plus bounded runtime smoke
 
 ### ADHD2-902 Workflow rollout runbook
 - Owner: shared
 - Size: M
 - Depends on: ADHD2-802
+- Status: done
 - Done when:
   - operators can version, stage, and roll back workflow changes across hosts
+  - workflow rollout verification uses drift/health checks before and after refresh

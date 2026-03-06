@@ -1059,6 +1059,45 @@ test("workflow hooks fail closed on timeout during start", async () => {
   }
 });
 
+test("workflow hook timeout escalates to SIGKILL when SIGTERM is ignored", async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "adhd-hook-timeout-kill-"));
+  try {
+    const runtime = new FakeRuntime();
+    runtime.createJob({ jobId: "j_hook_timeout_kill", inputText: "Start job" });
+    const handler = createHostApiHandler({
+      runtime,
+      hostId: "h_test",
+      getWorkflowWorkspacePolicy: () => ({
+        root: "workspaces",
+        rootPath: path.join(tempDir, "workspaces"),
+        requirePathContainment: true
+      }),
+      getWorkflowHookPolicy: () => ({
+        timeoutMs: 50,
+        afterCreate: null,
+        beforeRun: "node -e 'process.on(\"SIGTERM\", () => {}); setInterval(() => {}, 1000)'",
+        afterRun: null,
+        beforeRemove: null
+      })
+    });
+
+    const startedAtMs = Date.now();
+    const started = await invoke(handler, {
+      method: "POST",
+      url: "/api/jobs/j_hook_timeout_kill/start",
+      body: JSON.stringify({})
+    });
+    const elapsedMs = Date.now() - startedAtMs;
+
+    assert.equal(started.statusCode, 503);
+    assert.equal(started.json.error.code, "WORKFLOW_HOOK_FAILED");
+    assert.equal(started.json.error.details.timedOut, true);
+    assert.equal(elapsedMs < 1500, true);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("workflow hook failures redact secrets and truncate output", async () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "adhd-hook-sanitize-"));
   try {

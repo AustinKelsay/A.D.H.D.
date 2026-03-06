@@ -89,6 +89,32 @@ class FakeRuntime extends EventEmitter {
     return job;
   }
 
+  completeJob(jobId, {
+    resultSummary = "Completed",
+    artifactPaths = []
+  } = {}) {
+    const job = this.getJob(jobId);
+    if (!job) {
+      throw new RuntimeError("JOB_NOT_FOUND", `Job not found: ${jobId}`);
+    }
+    const now = new Date().toISOString();
+    const from = job.state;
+    job.state = JOB_STATES.COMPLETED;
+    job.resultSummary = resultSummary;
+    job.artifactPaths = [...artifactPaths];
+    job.timestamps.endedAt = now;
+    job.timestamps.updatedAt = now;
+    this.store.emit("transition", {
+      jobId,
+      from,
+      to: JOB_STATES.COMPLETED,
+      reason: "complete",
+      at: now
+    });
+    this.store.emit("updated", structuredClone(job));
+    return job;
+  }
+
   async interruptJob(jobId) {
     const job = this.getJob(jobId);
     if (!job) {
@@ -680,6 +706,99 @@ test("federation routes jobs and controls to the targeted host", async () => {
   assert.equal(loaded.statusCode, 200);
   assert.equal(loaded.json.hostId, "h_bravo02");
   assert.equal(loaded.json.job.jobId, "j_fed001");
+});
+
+test("fresh control plane and fresh host can complete a first job", async () => {
+  const runtime = new FakeRuntime("h_alpha01");
+  const handler = createFederationApiHandler({
+    hosts: {
+      h_alpha01: {
+        runtime,
+        getRuntimeStatus: () => ({
+          ready: true,
+          error: null
+        }),
+        getWorkflowStatus: () => ({
+          loaded: true,
+          lastError: null,
+          contentHash: "wf_release_hash"
+        }),
+        validateWorkflowPreflight: () => ({ ok: true })
+      }
+    },
+    expectedWorkflowHash: "wf_release_hash",
+    workflowDriftPolicy: "warn"
+  });
+
+  const { hostToken } = await registerEnrollAndHeartbeat(handler, "h_alpha01");
+  const heartbeat = await invoke(handler, {
+    method: "POST",
+    url: "/api/hosts/h_alpha01/heartbeat",
+    headers: {
+      authorization: `Bearer ${hostToken}`
+    },
+    body: JSON.stringify({
+      workflow: {
+        status: "loaded",
+        contentHash: "wf_release_hash"
+      }
+    })
+  });
+  assert.equal(heartbeat.statusCode, 202);
+
+  const created = await invoke(handler, {
+    method: "POST",
+    url: "/api/jobs",
+    body: JSON.stringify({
+      hostId: "h_alpha01",
+      jobId: "j_bootstrap001",
+      inputText: "Bootstrap first production job",
+      intent: {
+        rawText: "Bootstrap first production job",
+        target: "/repos/release-ready"
+      }
+    })
+  });
+  assert.equal(created.statusCode, 201);
+  assert.equal(created.json.hostId, "h_alpha01");
+  assert.equal(created.json.job.state, JOB_STATES.QUEUED);
+
+  const started = await invoke(handler, {
+    method: "POST",
+    url: "/api/jobs/j_bootstrap001/start",
+    body: JSON.stringify({})
+  });
+  assert.equal(started.statusCode, 200);
+  assert.equal(started.json.job.state, JOB_STATES.RUNNING);
+
+  runtime.completeJob("j_bootstrap001", {
+    resultSummary: "Bootstrap complete",
+    artifactPaths: ["/tmp/bootstrap-report.txt"]
+  });
+
+  const job = await invoke(handler, {
+    method: "GET",
+    url: "/api/jobs/j_bootstrap001"
+  });
+  assert.equal(job.statusCode, 200);
+  assert.equal(job.json.job.state, JOB_STATES.COMPLETED);
+
+  const result = await invoke(handler, {
+    method: "GET",
+    url: "/api/jobs/j_bootstrap001/result"
+  });
+  assert.equal(result.statusCode, 200);
+  assert.equal(result.json.result.resultSummary, "Bootstrap complete");
+  assert.deepEqual(result.json.result.artifactPaths, ["/tmp/bootstrap-report.txt"]);
+
+  const health = await invoke(handler, {
+    method: "GET",
+    url: "/health"
+  });
+  assert.equal(health.statusCode, 200);
+  assert.equal(health.json.hosts.total, 1);
+  assert.equal(health.json.hosts.online, 1);
+  assert.equal(health.json.workflow.driftedHosts.length, 0);
 });
 
 test("jobs catalog supports host/state/repo/date filters across hosts", async () => {

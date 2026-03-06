@@ -27,7 +27,9 @@ const REQUIRED = [
   "llm/workflows/phase-5-federation-operator.md",
   "llm/workflows/phase-6-run-catalog-operator.md",
   "llm/workflows/phase-7-reliability-operator.md",
-  "llm/workflows/phase-8-hardening-operator.md"
+  "llm/workflows/phase-8-hardening-operator.md",
+  "llm/workflows/phase-9-host-bootstrap.md",
+  "llm/workflows/phase-9-workflow-rollout.md"
 ];
 
 const cwd = process.cwd();
