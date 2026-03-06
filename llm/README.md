@@ -41,6 +41,8 @@ Source of truth for project planning, phase execution, and implementation contra
 - `workflows/phase-6-run-catalog-operator.md`
 - `workflows/phase-7-reliability-operator.md`
 - `workflows/phase-8-hardening-operator.md`
+- `workflows/phase-9-host-bootstrap.md`
+- `workflows/phase-9-workflow-rollout.md`
 
 ## Phase 0 Commands
 - `npm run health`
@@ -122,3 +124,10 @@ Source of truth for project planning, phase execution, and implementation contra
 
 ## Phase 8 Runbook
 - `workflows/phase-8-hardening-operator.md`
+
+## Phase 9 Commands
+- `npm run phase9:verify`
+
+## Phase 9 Runbooks
+- `workflows/phase-9-host-bootstrap.md`
+- `workflows/phase-9-workflow-rollout.md`

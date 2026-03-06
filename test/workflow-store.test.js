@@ -158,9 +158,10 @@ test("WorkflowStore preflight fails when workflow file is missing", async () => 
 test("WorkflowStore rejects workspace roots that escape repo containment", async () => {
   const tempDir = makeTempDir();
   try {
+    const escapeRoot = path.dirname(tempDir);
     writeWorkflowFile(tempDir, `---
 workspace:
-  root: "/tmp"
+  root: ${JSON.stringify(escapeRoot)}
   require_path_containment: true
 codex:
   command: "codex app-server"
