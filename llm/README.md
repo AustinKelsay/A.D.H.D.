@@ -4,8 +4,8 @@
 Source of truth for project planning, phase execution, and implementation contracts.
 
 ## Current Milestone
-- Phase 8 (review and hardening) baseline is implemented.
-- Active build target is Phase 9 (release and distribution).
+- Phase 9 (release and distribution) baseline is implemented.
+- All planned phases in the federated rebuild are complete; current work is operational rollout and maintenance.
 
 ## Folder Intent
 - `project/` - canonical product and architecture definitions.

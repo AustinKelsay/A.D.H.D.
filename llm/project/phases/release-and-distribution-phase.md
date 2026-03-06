@@ -1,7 +1,7 @@
 # ADHD Release and Distribution Phase (Phase 9)
 
 ## Status
-In progress.
+Complete.
 
 ## Objective
 Make new control-plane and host-node deployments repeatable.
@@ -18,6 +18,12 @@ Make new control-plane and host-node deployments repeatable.
 - upgrades are explicit, testable, and reversible
 - operators can safely roll out and roll back workflow contract changes across hosts
 
-## Current Focus
-- publish Phase 9 bootstrap, upgrade, and workflow-rollout runbooks
-- add a Phase 9 verification entrypoint for host/control-plane readiness and runtime init smoke
+## Delivered
+- Phase 9 verification entrypoint (`npm run phase9:verify`) covering inherited regression tests, capability checks, and bounded runtime smoke
+- host bootstrap, upgrade, and rollback runbook for control-plane and host bring-up
+- workflow rollout and rollback runbook for staged `WORKFLOW.md` deployment
+- federation regression proving a fresh control plane + fresh host can create, start, complete, and read back a first job
+
+## Verification
+- `npm run phase9:verify`
+- `npm test`

@@ -96,3 +96,10 @@ Before attempting the first production job:
 - federation `/health` shows no unexpected offline/degraded host
 - host `/metrics` shows no repeated workflow refresh or hook failures
 - workflow refresh succeeds on demand
+
+## 6. Release Checklist
+Before cutting or deploying a release:
+- run `npm run phase9:verify`
+- confirm host and federation health are clean
+- confirm no unexpected workflow drift
+- confirm bootstrap/rollback owner and last-known-good revision are recorded
