@@ -4,8 +4,8 @@
 Source of truth for project planning, phase execution, and implementation contracts.
 
 ## Current Milestone
-- Phase 9 (release and distribution) baseline is implemented.
-- All planned phases in the federated rebuild are complete; current work is operational rollout and maintenance.
+- Phase 9 (release and distribution) is complete.
+- Active build target is Phase 10 (operations and sustainment).
 
 ## Folder Intent
 - `project/` - canonical product and architecture definitions.
@@ -34,6 +34,7 @@ Source of truth for project planning, phase execution, and implementation contra
 - `project/phases/reliability-and-observability-phase.md`
 - `project/phases/review-and-hardening-phase.md`
 - `project/phases/release-and-distribution-phase.md`
+- `project/phases/operations-and-sustainment-phase.md`
 - `workflows/phase-0-bootstrap.md`
 - `workflows/phase-3-mvp-operator.md`
 - `workflows/phase-4-mobile-operator.md`
@@ -43,6 +44,7 @@ Source of truth for project planning, phase execution, and implementation contra
 - `workflows/phase-8-hardening-operator.md`
 - `workflows/phase-9-host-bootstrap.md`
 - `workflows/phase-9-workflow-rollout.md`
+- `workflows/phase-10-operations-operator.md`
 
 ## Phase 0 Commands
 - `npm run health`
@@ -131,3 +133,13 @@ Source of truth for project planning, phase execution, and implementation contra
 ## Phase 9 Runbooks
 - `workflows/phase-9-host-bootstrap.md`
 - `workflows/phase-9-workflow-rollout.md`
+
+## Phase 10 Commands
+- `npm run phase10:verify`
+
+## Phase 10 Runbook
+- `workflows/phase-10-operations-operator.md`
+
+## Phase 10 Focus
+- run repeatable post-release canary and soak checks against current host/federation health and metrics
+- document daily operational review and incident/maintenance response using the live API surface

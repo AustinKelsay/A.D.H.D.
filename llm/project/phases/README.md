@@ -14,6 +14,7 @@ Track implementation from single-host baseline to multi-host orchestration.
 8. `reliability-and-observability-phase.md`
 9. `review-and-hardening-phase.md`
 10. `release-and-distribution-phase.md`
+11. `operations-and-sustainment-phase.md`
 
 ## Execution Rules
 - Stabilize host-local runtime before federation features.
@@ -22,4 +23,4 @@ Track implementation from single-host baseline to multi-host orchestration.
 - Treat `WORKFLOW.md` as the repo-owned contract for prompt, runtime policy, and hooks; runtime behavior changes should flow through this contract.
 
 ## Current Milestone
-- `release-and-distribution-phase.md` is complete; no further planned phases remain.
+- `operations-and-sustainment-phase.md` is the active delivery target.
