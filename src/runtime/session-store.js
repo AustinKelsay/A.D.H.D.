@@ -10,6 +10,13 @@ function clone(value) {
   return structuredClone(value);
 }
 
+function cloneMetadata(value) {
+  if (value === null || value === undefined) {
+    return value;
+  }
+  return clone(value);
+}
+
 export class SessionStore extends EventEmitter {
   constructor() {
     super();
@@ -20,7 +27,11 @@ export class SessionStore extends EventEmitter {
     jobId,
     hostId,
     inputText,
+    intake = null,
     delegationMode,
+    intent = null,
+    plan = null,
+    delegationDecision = null,
     policySnapshot,
     state = JOB_STATES.QUEUED,
     hostJobId = null,
@@ -44,7 +55,11 @@ export class SessionStore extends EventEmitter {
       turnId,
       state,
       delegationMode,
-      policySnapshot,
+      intake: cloneMetadata(intake),
+      intent: cloneMetadata(intent),
+      plan: cloneMetadata(plan),
+      delegationDecision: cloneMetadata(delegationDecision),
+      policySnapshot: clone(policySnapshot),
       stateHistory: [
         {
           from: null,
@@ -150,6 +165,46 @@ export class SessionStore extends EventEmitter {
       patch.artifactPaths = artifactPaths;
     }
     return this.patchJob(jobId, patch);
+  }
+
+  retry(jobId, { reason = "retry-requested", at = nowIso() } = {}) {
+    const job = this.jobs.get(jobId);
+    assert(job, "JOB_NOT_FOUND", `job not found: ${jobId}`);
+
+    const previousState = job.state;
+    assert(isTerminalState(previousState), "JOB_NOT_TERMINAL", `job is not terminal: ${jobId}`, {
+      state: previousState
+    });
+
+    assertTransition(previousState, JOB_STATES.QUEUED);
+
+    job.hostJobId = null;
+    job.threadId = null;
+    job.turnId = null;
+    job.state = JOB_STATES.QUEUED;
+    job.resultSummary = null;
+    job.artifactPaths = [];
+
+    job.timestamps.updatedAt = at;
+    job.timestamps.startedAt = null;
+    job.timestamps.endedAt = null;
+
+    job.stateHistory.push({
+      from: previousState,
+      to: JOB_STATES.QUEUED,
+      at,
+      reason
+    });
+
+    this.emit("transition", {
+      jobId,
+      from: previousState,
+      to: JOB_STATES.QUEUED,
+      reason,
+      at
+    });
+
+    return clone(job);
   }
 
   findByThreadId(threadId) {

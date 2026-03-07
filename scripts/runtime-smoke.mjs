@@ -1,12 +1,31 @@
 #!/usr/bin/env node
 import { AppServerProcess, CodexAppServerAdapter, loadAvailableMethods } from "../src/runtime/index.js";
 
+function readPositiveIntEnv(name, fallback) {
+  const rawValue = process.env[name];
+  if (rawValue === undefined || rawValue === null || String(rawValue).trim() === "") {
+    return fallback;
+  }
+
+  const normalized = String(rawValue).trim();
+  if (!/^\d+$/.test(normalized)) {
+    return fallback;
+  }
+
+  const parsed = Number.parseInt(normalized, 10);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+    return fallback;
+  }
+  return parsed;
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function main() {
   const shouldInitialize = process.argv.includes("--initialize");
+  const initializeTimeoutMs = readPositiveIntEnv("ADHD_RUNTIME_SMOKE_TIMEOUT_MS", 60000);
 
   const processManager = new AppServerProcess();
   processManager.start();
@@ -54,7 +73,7 @@ async function main() {
 
     for (const mode of ["framed", "line"]) {
       const rpcClient = processManager.createRpcClient({
-        requestTimeoutMs: 10000,
+        requestTimeoutMs: initializeTimeoutMs,
         outgoingMode: mode
       });
       const adapter = new CodexAppServerAdapter({
@@ -90,6 +109,7 @@ async function main() {
           ok: true,
           mode: "initialize",
           outgoingMode: usedMode,
+          initializeTimeoutMs,
           pid: started.pid,
           initialize: init
         },

@@ -7,6 +7,7 @@ Implement robust host-local Codex runtime orchestration through app-server.
 - host-local app-server lifecycle
 - typed protocol adapter
 - host-local state transitions and interrupt behavior
+- workflow-driven workspace lifecycle hooks (`after_create`, `before_run`, `after_run`, `before_remove`)
 
 ## Work Items
 1. Build host app-server process manager.
@@ -14,11 +15,13 @@ Implement robust host-local Codex runtime orchestration through app-server.
 3. Map protocol events to job states.
 4. Implement deterministic interrupt/cancel handling.
 5. Handle unknown notifications safely.
+6. Execute workflow-defined workspace hooks with timeout semantics and safe failure handling.
 
 ## Exit Criteria
 - host can run job lifecycle end-to-end through app-server
 - host-local transitions are deterministic and persisted
 - required methods are checked at runtime
+- workflow hooks run deterministically and respect workspace safety boundaries
 
 ## Current Baseline Artifacts
 - `src/runtime/state-machine.js`

@@ -36,6 +36,14 @@
   - app-server schema snapshots are committed
   - compatibility checks fail fast on required API drift
 
+### ADHD2-005 Workflow contract baseline
+- Owner: shared
+- Size: M
+- Depends on: ADHD2-001
+- Done when:
+  - `WORKFLOW.md` contract (prompt/runtime/hooks) is documented
+  - workflow parse/validation error semantics are defined
+
 ## Phase 1: Session Runtime (Host-local)
 
 ### ADHD2-101 App-server process manager
@@ -52,6 +60,14 @@
 - Owner: agent
 - Size: M
 - Depends on: ADHD2-102
+
+### ADHD2-104 Workflow hook lifecycle
+- Owner: agent
+- Size: M
+- Depends on: ADHD2-103
+- Done when:
+  - host executes `after_create`, `before_run`, `after_run`, `before_remove` hooks with timeout controls
+  - workspace safety boundaries are enforced for hook execution
 
 ## Phase 2: Intent + Delegation
 
@@ -75,6 +91,14 @@
 - Size: M
 - Depends on: ADHD2-202, ADHD2-203
 
+### ADHD2-205 Workflow prompt rendering contract
+- Owner: agent
+- Size: M
+- Depends on: ADHD2-201
+- Done when:
+  - conductor prompt is sourced from workflow contract
+  - template parse/render failures are surfaced deterministically
+
 ## Phase 3: MVP (Single Host Baseline)
 
 ### ADHD2-301 Unified intake (voice + text)
@@ -86,6 +110,14 @@
 - Owner: agent
 - Size: M
 - Depends on: ADHD2-301, ADHD2-201
+
+### ADHD2-303 Workflow preflight and reload
+- Owner: agent
+- Size: M
+- Depends on: ADHD2-205
+- Done when:
+  - dispatch preflight validates workflow/runtime requirements
+  - invalid reload keeps last-known-good workflow active
 
 ## Phase 4: Mobile Control
 
@@ -130,17 +162,33 @@
 - Done when:
   - host outage handling is deterministic and test-covered
 
+### ADHD2-505 Cross-host workflow parity
+- Owner: agent
+- Size: M
+- Depends on: ADHD2-503
+- Done when:
+  - control plane surfaces per-host workflow version/hash
+  - dispatch policy for workflow drift is explicit and test-covered
+
 ## Phase 6: Run Catalog
 
 ### ADHD2-601 Host-aware catalog schema
 - Owner: agent
 - Size: M
 - Depends on: ADHD2-503
+- Status: done
+- Done when:
+  - control plane persists host-aware run catalog entries (`jobId`, `hostId`, state/timestamps, replay source)
+  - host linkage is restored from catalog after control-plane restart
 
 ### ADHD2-602 Cross-host search and replay
 - Owner: agent
 - Size: M
 - Depends on: ADHD2-601
+- Status: done
+- Done when:
+  - operators can filter catalog by host/state/repo/date and query text
+  - rerun and clone replay routes preserve host context by default
 
 ## Phase 7: Reliability and Observability
 
@@ -148,11 +196,30 @@
 - Owner: agent
 - Size: L
 - Depends on: ADHD2-602
+- Status: done
+- Done when:
+  - host outage handling is deterministic for dispatch/start/retry paths
+  - reconciliation surfaces blocked non-terminal jobs during host degradation/offline windows
+  - behavior is covered by federation route tests
 
 ### ADHD2-702 Drift and health automation
 - Owner: agent
 - Size: M
 - Depends on: ADHD2-701
+- Status: done
+- Done when:
+  - control plane and host expose structured metrics snapshots for operational debugging
+  - host workflow drift detection policy is explicit (`warn` / `block_dispatch`) and enforced
+  - compatibility drift checks are included in phase verification (`phase7:verify`)
+
+### ADHD2-703 Workflow reload observability
+- Owner: agent
+- Size: M
+- Depends on: ADHD2-303
+- Status: done
+- Done when:
+  - workflow reload success/failure and active version are visible in logs/metrics
+  - operators can trigger/verify workflow refresh safely
 
 ## Phase 8: Review and Hardening
 
@@ -160,6 +227,20 @@
 - Owner: shared
 - Size: M
 - Depends on: ADHD2-702
+- Status: done
+- Done when:
+  - host auth, isolation, and fallback edge cases are covered by host/federation tests
+  - unsafe or unready workflow/runtime states fail closed without widening privileges
+
+### ADHD2-802 Workflow hook hardening
+- Owner: shared
+- Size: M
+- Depends on: ADHD2-703
+- Status: done
+- Done when:
+  - hook output/secret hygiene guardrails are enforced
+  - malformed/unsafe workflow changes fail closed for dispatch
+  - workspace hook lifecycle is covered for create/start/terminal/cleanup paths
 
 ## Phase 9: Release and Distribution
 
@@ -167,3 +248,36 @@
 - Owner: shared
 - Size: M
 - Depends on: ADHD2-801
+- Status: done
+- Done when:
+  - operators have a single runbook for first host bootstrap, upgrade, and rollback
+  - release verification includes control-plane/host capability checks plus bounded runtime smoke
+
+### ADHD2-902 Workflow rollout runbook
+- Owner: shared
+- Size: M
+- Depends on: ADHD2-802
+- Status: done
+- Done when:
+  - operators can version, stage, and roll back workflow changes across hosts
+  - workflow rollout verification uses drift/health checks before and after refresh
+
+## Phase 10: Operations and Sustainment
+
+### ADHD2-1001 Release canary and soak checks
+- Owner: shared
+- Size: M
+- Depends on: ADHD2-901
+- Status: in_progress
+- Done when:
+  - operators can run a repeatable post-release canary and soak checklist
+  - release verification includes explicit operational health review steps after deploy
+
+### ADHD2-1002 Incident and maintenance runbook
+- Owner: shared
+- Size: M
+- Depends on: ADHD2-902
+- Status: in_progress
+- Done when:
+  - operators have a single runbook for daily checks, incident triage, and maintenance windows
+  - recurring operational checks are documented against current health/metrics/workflow signals
