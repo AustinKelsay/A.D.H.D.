@@ -7,7 +7,7 @@ Run the released system safely in steady state: validate releases, review health
 - use separate ports when running host and federation APIs locally; examples below use `<HOST_PORT>=8787` and `<FEDERATION_PORT>=8788`
 - supply `authorization: Bearer <CONTROL_PLANE_TOKEN>` to federation requests when your deployment requires it
 - supply `authorization: Bearer <HOST_OR_PROXY_TOKEN>` to host workflow refresh requests when your deployment requires it
-- use [phase-9-host-bootstrap.md](/Users/plebdev/Desktop/code/A.D.H.D./llm/workflows/phase-9-host-bootstrap.md) for fresh bring-up and [phase-9-workflow-rollout.md](/Users/plebdev/Desktop/code/A.D.H.D./llm/workflows/phase-9-workflow-rollout.md) for staged `WORKFLOW.md` rollout/rollback
+- use [phase-9-host-bootstrap.md](./phase-9-host-bootstrap.md) for fresh bring-up and [phase-9-workflow-rollout.md](./phase-9-workflow-rollout.md) for staged `WORKFLOW.md` rollout/rollback
 
 If your local deployment does not enforce auth on these endpoints, you can omit the authorization headers in the examples below.
 
@@ -109,8 +109,8 @@ Workflow-drift means `workflow.driftedHosts` is non-empty or refresh/preflight f
 Control-plane-wide means multiple hosts fail at once, reconciliation blocks accumulate, or federation `errorCounts` spikes.
 4. choose the smallest effective action
 For `host-local`, isolate or restart the affected host.
-For `workflow-drift`, refresh or roll back via [phase-9-workflow-rollout.md](/Users/plebdev/Desktop/code/A.D.H.D./llm/workflows/phase-9-workflow-rollout.md).
-For `control-plane-wide`, use [phase-9-host-bootstrap.md](/Users/plebdev/Desktop/code/A.D.H.D./llm/workflows/phase-9-host-bootstrap.md) to drive rollback or control-plane recovery.
+For `workflow-drift`, refresh or roll back via [phase-9-workflow-rollout.md](./phase-9-workflow-rollout.md).
+For `control-plane-wide`, use [phase-9-host-bootstrap.md](./phase-9-host-bootstrap.md) to drive rollback or control-plane recovery.
 5. rerun `npm run phase10:verify` and at least one representative job path after mitigation
 
 ## 5. Maintenance Window Checklist
@@ -122,7 +122,7 @@ Before maintenance:
 
 During maintenance:
 - apply one class of change at a time when possible: host runtime, control-plane runtime, or `WORKFLOW.md`
-- if `WORKFLOW.md` changes, use the staged rollout flow in [phase-9-workflow-rollout.md](/Users/plebdev/Desktop/code/A.D.H.D./llm/workflows/phase-9-workflow-rollout.md) instead of bulk refresh
+- if `WORKFLOW.md` changes, use the staged rollout flow in [phase-9-workflow-rollout.md](./phase-9-workflow-rollout.md) instead of bulk refresh
 
 After maintenance:
 - rerun `npm run phase10:verify`

@@ -19,7 +19,7 @@ Turn the released federated ADHD stack into a maintainable, repeatable operation
 - maintenance tasks have explicit pre-checks, execution steps, and post-checks
 
 ## Delivered So Far
-- Phase 10 verification entrypoint (`npm run phase10:verify`) extends the Phase 9 release-readiness gate with required docs validation
+- Phase 10 verification entrypoint (`npm run phase10:verify`) reuses the Phase 9 release-readiness gate, including the inherited docs validation already present in the phase chain
 - operator runbook covers post-release canary and soak checks, daily health review, incident triage, and maintenance-window procedure
 - project milestone and backlog tracking are updated to make operations work the active delivery target
 
