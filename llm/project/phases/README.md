@@ -23,4 +23,5 @@ Track implementation from single-host baseline to multi-host orchestration.
 - Treat `WORKFLOW.md` as the repo-owned contract for prompt, runtime policy, and hooks; runtime behavior changes should flow through this contract.
 
 ## Current Milestone
-- `operations-and-sustainment-phase.md` is the active delivery target.
+- `operations-and-sustainment-phase.md` is complete.
+- No Phase 11 is defined yet.

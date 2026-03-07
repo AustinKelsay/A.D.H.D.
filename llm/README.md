@@ -5,7 +5,8 @@ Source of truth for project planning, phase execution, and implementation contra
 
 ## Current Milestone
 - Phase 9 (release and distribution) is complete.
-- Active build target is Phase 10 (operations and sustainment).
+- Phase 10 (operations and sustainment) is complete.
+- No Phase 11 is defined yet.
 
 ## Folder Intent
 - `project/` - canonical product and architecture definitions.
@@ -140,6 +141,6 @@ Source of truth for project planning, phase execution, and implementation contra
 ## Phase 10 Runbook
 - `workflows/phase-10-operations-operator.md`
 
-## Phase 10 Focus
-- run repeatable post-release canary and soak checks against current host/federation health and metrics
-- document daily operational review and incident/maintenance response using the live API surface
+## Phase 10 Outcome
+- repeatable post-release canary and soak checks are documented against current host and federation health/metrics
+- daily operational review, incident triage, and maintenance procedures are documented against the live API surface
