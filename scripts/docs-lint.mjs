@@ -21,6 +21,7 @@ const REQUIRED = [
   "llm/project/phases/reliability-and-observability-phase.md",
   "llm/project/phases/review-and-hardening-phase.md",
   "llm/project/phases/release-and-distribution-phase.md",
+  "llm/project/phases/operations-and-sustainment-phase.md",
   "llm/workflows/phase-0-bootstrap.md",
   "llm/workflows/phase-3-mvp-operator.md",
   "llm/workflows/phase-4-mobile-operator.md",
@@ -29,7 +30,8 @@ const REQUIRED = [
   "llm/workflows/phase-7-reliability-operator.md",
   "llm/workflows/phase-8-hardening-operator.md",
   "llm/workflows/phase-9-host-bootstrap.md",
-  "llm/workflows/phase-9-workflow-rollout.md"
+  "llm/workflows/phase-9-workflow-rollout.md",
+  "llm/workflows/phase-10-operations-operator.md"
 ];
 
 const cwd = process.cwd();

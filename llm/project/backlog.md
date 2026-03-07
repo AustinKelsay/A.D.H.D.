@@ -261,3 +261,23 @@
 - Done when:
   - operators can version, stage, and roll back workflow changes across hosts
   - workflow rollout verification uses drift/health checks before and after refresh
+
+## Phase 10: Operations and Sustainment
+
+### ADHD2-1001 Release canary and soak checks
+- Owner: shared
+- Size: M
+- Depends on: ADHD2-901
+- Status: in_progress
+- Done when:
+  - operators can run a repeatable post-release canary and soak checklist
+  - release verification includes explicit operational health review steps after deploy
+
+### ADHD2-1002 Incident and maintenance runbook
+- Owner: shared
+- Size: M
+- Depends on: ADHD2-902
+- Status: in_progress
+- Done when:
+  - operators have a single runbook for daily checks, incident triage, and maintenance windows
+  - recurring operational checks are documented against current health/metrics/workflow signals

@@ -21,6 +21,8 @@ Expected:
 - bounded runtime smoke succeeds
 
 ## 1. Fresh Host Bootstrap
+Use different ports for the host API and federation API when running both locally. Examples below use `<HOST_PORT>=8787` and `<FEDERATION_PORT>=8788`.
+
 1. Install dependencies:
 ```bash
 npm install
@@ -31,11 +33,11 @@ npm run health
 ```
 3. Start the host API:
 ```bash
-npm run host-api:start
+PORT=<HOST_PORT> npm run host-api:start
 ```
 4. Check host readiness:
 ```bash
-curl -sS "http://127.0.0.1:8787/health"
+curl -sS "http://127.0.0.1:<HOST_PORT>/health"
 ```
 
 Expected:
@@ -46,11 +48,11 @@ Expected:
 ## 2. Fresh Control Plane Bootstrap
 1. Start the federation API in a separate shell:
 ```bash
-npm run federation-api:start
+PORT=<FEDERATION_PORT> npm run federation-api:start
 ```
 2. Check control-plane readiness:
 ```bash
-curl -sS "http://127.0.0.1:8787/health" \
+curl -sS "http://127.0.0.1:<FEDERATION_PORT>/health" \
   -H "authorization: Bearer <CONTROL_PLANE_TOKEN>"
 ```
 
