@@ -268,7 +268,7 @@
 - Owner: shared
 - Size: M
 - Depends on: ADHD2-901
-- Status: in_progress
+- Status: done
 - Done when:
   - operators can run a repeatable post-release canary and soak checklist
   - release verification includes explicit operational health review steps after deploy
@@ -277,7 +277,7 @@
 - Owner: shared
 - Size: M
 - Depends on: ADHD2-902
-- Status: in_progress
+- Status: done
 - Done when:
   - operators have a single runbook for daily checks, incident triage, and maintenance windows
   - recurring operational checks are documented against current health/metrics/workflow signals
