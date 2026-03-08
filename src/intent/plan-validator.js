@@ -57,6 +57,18 @@ function assertDelegation(delegation) {
   assertMode(delegation.selectedMode, "delegation.selectedMode");
   assertString(delegation.reasonCode, "delegation.reasonCode");
   assertString(delegation.reason, "delegation.reason");
+  assertObject(delegation.policy, "delegation.policy must be an object");
+  assertMode(delegation.policy.defaultMode, "delegation.policy.defaultMode");
+  if (typeof delegation.policy.allowMultiAgent !== "boolean") {
+    fail("delegation.policy.allowMultiAgent must be a boolean");
+  }
+  if (typeof delegation.policy.multiAgentKillSwitch !== "boolean") {
+    fail("delegation.policy.multiAgentKillSwitch must be a boolean");
+  }
+  assertObject(delegation.hostCapability, "delegation.hostCapability must be an object");
+  if (typeof delegation.hostCapability.multiAgent !== "boolean") {
+    fail("delegation.hostCapability.multiAgent must be a boolean");
+  }
 
   if (typeof delegation.killSwitchApplied !== "boolean") {
     fail("delegation.killSwitchApplied must be a boolean");
@@ -83,6 +95,9 @@ export function validatePlan(plan, { intent = null } = {}) {
 
   if (!Array.isArray(plan.constraints)) {
     fail("constraints must be an array");
+  }
+  if (!plan.constraints.every((entry) => typeof entry === "string")) {
+    fail("constraints must be an array of strings");
   }
   if (!Array.isArray(plan.paths)) {
     fail("paths must be an array");

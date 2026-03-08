@@ -21,7 +21,7 @@ Look for:
 - `runtime.ready`
 - `workflow.preflight.ok`
 
-If workflow preflight fails, plan/create/start routes fail with `503` and `error.code` prefixed `WORKFLOW_`.
+If workflow preflight cannot find any valid active workflow, plan/create/start routes fail with `503` and `error.code` prefixed `WORKFLOW_`. Recoverable reload/preflight errors that leave the last-known-good workflow active do not cause a `503`.
 
 ## 1) Unified Intake
 

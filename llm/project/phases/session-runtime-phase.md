@@ -30,6 +30,9 @@ Implement robust host-local Codex runtime orchestration through app-server.
 - `src/runtime/codex/app-server-process.js`
 - `src/runtime/codex/protocol-adapter.js`
 - `src/runtime/host-runtime.js`
+- `src/workflow/hook-runner.js`
+- `src/workflow/store.js`
+- `src/workflow/index.js`
 - `src/server/host-api.js`
 - `scripts/start-host-api.mjs`
 - `test/*.test.js`

@@ -52,6 +52,10 @@ function generatePairingCode() {
   return randomBytes(4).toString("base64url").slice(0, 6).toUpperCase();
 }
 
+function generatePairingId() {
+  return `pr_${randomBytes(8).toString("hex")}`;
+}
+
 function generateSessionToken() {
   return `ms_${randomBytes(18).toString("hex")}`;
 }
@@ -98,8 +102,10 @@ export class MobileControlManager {
     }
     const createdAt = nowIso();
     const expiresAt = new Date(Date.now() + this.pairingTtlMs).toISOString();
+    const pairingId = generatePairingId();
 
     this.pairings.set(pairingCode, {
+      pairingId,
       pairingCode,
       deviceLabel,
       initiatedBy,
@@ -110,7 +116,7 @@ export class MobileControlManager {
     this.appendEvent({
       type: "mobile.pairing.started",
       payload: {
-        pairingCode,
+        pairingId,
         deviceLabel,
         initiatedBy,
         expiresAt
@@ -118,6 +124,7 @@ export class MobileControlManager {
     });
 
     return {
+      pairingId,
       pairingCode,
       expiresAt
     };

@@ -5,6 +5,7 @@ Validate fail-closed workflow behavior, hook safety, and multi-host fallback edg
 
 ## Preconditions
 - host API and federation API are running
+- use `<HOST_PORT>` for the host API and `<CONTROL_PLANE_PORT>` for the federation API when substituting the examples below
 - control-plane auth headers are supplied when enabled
 - the target repo has a `WORKFLOW.md` with explicit `workspace` and `hooks` policy
 
@@ -56,7 +57,7 @@ Expected:
 
 ## 5. Confirm Federation Safety State
 ```bash
-curl -sS "http://127.0.0.1:8787/health" \
+curl -sS "http://127.0.0.1:<CONTROL_PLANE_PORT>/health" \
   -H "authorization: Bearer <CONTROL_PLANE_TOKEN>"
 ```
 

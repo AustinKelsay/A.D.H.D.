@@ -801,6 +801,88 @@ test("fresh control plane and fresh host can complete a first job", async () => 
   assert.equal(health.json.workflow.driftedHosts.length, 0);
 });
 
+test("live and result routes fall back to persisted catalog data when host runtime is gone", async () => {
+  const catalogDir = fs.mkdtempSync(path.join(os.tmpdir(), "adhd-fed-catalog-"));
+  const catalogPath = path.join(catalogDir, "catalog.json");
+  try {
+    const runtime = new FakeRuntime("h_alpha01");
+    const writer = createFederationApiHandler({
+      hosts: {
+        h_alpha01: { runtime }
+      },
+      catalogStorePath: catalogPath
+    });
+
+    await registerEnrollAndHeartbeat(writer, "h_alpha01");
+
+    const created = await invoke(writer, {
+      method: "POST",
+      url: "/api/jobs",
+      body: JSON.stringify({
+        hostId: "h_alpha01",
+        jobId: "j_catalog_live001",
+        inputText: "Persist this run"
+      })
+    });
+    assert.equal(created.statusCode, 201);
+
+    runtime.completeJob("j_catalog_live001", {
+      resultSummary: "Persisted from catalog",
+      artifactPaths: ["/tmp/persisted.txt"]
+    });
+
+    const liveWarm = await invoke(writer, {
+      method: "GET",
+      url: "/api/jobs/j_catalog_live001/live"
+    });
+    assert.equal(liveWarm.statusCode, 200);
+
+    const resultWarm = await invoke(writer, {
+      method: "GET",
+      url: "/api/jobs/j_catalog_live001/result"
+    });
+    assert.equal(resultWarm.statusCode, 200);
+
+    const persistedDeadlineMs = Date.now() + 5000;
+    let persisted = false;
+    while (Date.now() <= persistedDeadlineMs) {
+      if (fs.existsSync(catalogPath)) {
+        const rawCatalog = fs.readFileSync(catalogPath, "utf8");
+        if (rawCatalog.includes("j_catalog_live001")) {
+          persisted = true;
+          break;
+        }
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    assert.equal(persisted, true, "catalog should persist before fallback reader starts");
+
+    const reader = createFederationApiHandler({
+      hosts: {},
+      catalogStorePath: catalogPath
+    });
+
+    const live = await invoke(reader, {
+      method: "GET",
+      url: "/api/jobs/j_catalog_live001/live"
+    });
+    assert.equal(live.statusCode, 200);
+    assert.equal(live.json.job.jobId, "j_catalog_live001");
+    assert.equal(live.json.job.state, JOB_STATES.COMPLETED);
+    assert.deepEqual(live.json.pendingApprovals, []);
+
+    const result = await invoke(reader, {
+      method: "GET",
+      url: "/api/jobs/j_catalog_live001/result"
+    });
+    assert.equal(result.statusCode, 200);
+    assert.equal(result.json.result.resultSummary, "Persisted from catalog");
+    assert.deepEqual(result.json.result.artifactPaths, ["/tmp/persisted.txt"]);
+  } finally {
+    fs.rmSync(catalogDir, { recursive: true, force: true });
+  }
+});
+
 test("jobs catalog supports host/state/repo/date filters across hosts", async () => {
   const alphaRuntime = new FakeRuntime("h_alpha01");
   const betaRuntime = new FakeRuntime("h_bravo02");

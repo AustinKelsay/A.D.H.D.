@@ -125,6 +125,11 @@ function parseScalar(value) {
   return trimmed;
 }
 
+// This parser supports a narrow YAML subset: simple `key: value` pairs, nested
+// objects via 2-space indentation, blank lines, and comment lines. It uses
+// `parseScalar` for the only supported scalar parsing. Arrays, multiline
+// strings, anchors/aliases, complex YAML types, and other advanced features are
+// not supported; invalid indentation or unrecognized lines throw immediately.
 function parseYamlFrontMatter(rawText) {
   const root = {};
   const stack = [{ indent: -1, target: root }];
@@ -563,8 +568,7 @@ export class WorkflowStore {
     void this.refreshAsync();
   }
 
-  current() {
-    this.triggerBackgroundRefresh();
+  currentWithoutRefresh() {
     if (this.active) {
       return {
         ok: true,
@@ -585,8 +589,15 @@ export class WorkflowStore {
     };
   }
 
+  // Convenience accessor: returns the current workflow state and schedules a
+  // background refresh if the store is eligible to refresh.
+  current() {
+    this.triggerBackgroundRefresh();
+    return this.currentWithoutRefresh();
+  }
+
   preflight() {
-    const current = this.current();
+    const current = this.currentWithoutRefresh();
     if (!current.ok) {
       return {
         ok: false,
@@ -629,7 +640,7 @@ export class WorkflowStore {
   }
 
   getDelegationPolicy() {
-    const current = this.current();
+    const current = this.currentWithoutRefresh();
     if (!current.ok) {
       return clone(DEFAULT_DELEGATION_POLICY);
     }
@@ -656,7 +667,7 @@ export class WorkflowStore {
   }
 
   getCodexPolicy() {
-    const current = this.current();
+    const current = this.currentWithoutRefresh();
     if (!current.ok) {
       return clone(DEFAULT_CODEX_POLICY);
     }
@@ -701,7 +712,7 @@ export class WorkflowStore {
   }
 
   getWorkspacePolicy() {
-    const current = this.current();
+    const current = this.currentWithoutRefresh();
     if (!current.ok) {
       return {
         ...DEFAULT_WORKSPACE_POLICY,
@@ -719,7 +730,7 @@ export class WorkflowStore {
   }
 
   getHookPolicy() {
-    const current = this.current();
+    const current = this.currentWithoutRefresh();
     if (!current.ok) {
       return clone(DEFAULT_HOOK_POLICY);
     }

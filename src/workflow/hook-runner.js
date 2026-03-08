@@ -6,6 +6,7 @@ import { RuntimeError } from "../runtime/errors.js";
 
 const DEFAULT_OUTPUT_LIMIT = 4000;
 const DEFAULT_KILL_GRACE_MS = 250;
+const DEFAULT_HOOK_TIMEOUT_MS = 60000;
 const MAX_CAPTURE_BYTES = 64 * 1024;
 
 function sanitizeText(raw, maxChars = DEFAULT_OUTPUT_LIMIT) {
@@ -78,6 +79,18 @@ function buildHookEnv({ job, hostId, workspacePath, hookName }) {
       hook: hookName
     })
   };
+}
+
+function normalizeTimeoutMs(value) {
+  if (value === undefined || value === null || value === "") {
+    return DEFAULT_HOOK_TIMEOUT_MS;
+  }
+
+  const parsed = typeof value === "number" ? value : Number.parseInt(String(value), 10);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return DEFAULT_HOOK_TIMEOUT_MS;
+  }
+  return Math.trunc(parsed);
 }
 
 async function runCommand(command, {
@@ -187,7 +200,7 @@ export function createWorkflowHookRunner({
         workspacePath: workspace.workspacePath,
         hookName: toHookField(hookName)
       }),
-      timeoutMs: hookPolicy.timeoutMs
+      timeoutMs: normalizeTimeoutMs(hookPolicy?.timeoutMs)
     });
 
     const payload = {
@@ -220,7 +233,9 @@ export function createWorkflowHookRunner({
   };
 
   return {
-    ensureWorkspace,
+    ensureWorkspace(jobId) {
+      return ensureWorkspace(jobId, getWorkspacePolicy());
+    },
     resolveJobWorkspacePath(jobId) {
       return resolveJobWorkspacePath(jobId, getWorkspacePolicy());
     },

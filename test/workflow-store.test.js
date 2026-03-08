@@ -211,3 +211,37 @@ prompt
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
 });
+
+test("WorkflowStore currentWithoutRefresh returns state without scheduling I/O", async () => {
+  const tempDir = makeTempDir();
+  try {
+    writeWorkflowFile(tempDir, `---
+codex:
+  command: "codex app-server"
+---
+prompt
+`);
+
+    const store = new WorkflowStore({
+      repoRoot: tempDir,
+      cwd: tempDir
+    });
+    await store.refreshAsync();
+
+    let refreshCalls = 0;
+    store.refreshAsync = async () => {
+      refreshCalls += 1;
+      return { ok: true, changed: false, workflow: store.active };
+    };
+
+    const current = store.currentWithoutRefresh();
+    assert.equal(current.ok, true);
+    assert.equal(refreshCalls, 0);
+
+    store.current();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(refreshCalls, 1);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});

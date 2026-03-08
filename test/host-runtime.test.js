@@ -154,7 +154,7 @@ test("getJobResult returns stable defaults and cloned artifact paths", () => {
   });
 
   const pending = runtime.getJobResult("j_test_result_shape");
-  assert.equal(pending.resultSummary, "");
+  assert.equal(pending.resultSummary, null);
   assert.deepEqual(pending.artifactPaths, []);
 
   runtime.store.setResult("j_test_result_shape", {
@@ -169,4 +169,39 @@ test("getJobResult returns stable defaults and cloned artifact paths", () => {
 
   const second = runtime.getJobResult("j_test_result_shape");
   assert.deepEqual(second.artifactPaths, ["artifacts/summary.md"]);
+});
+
+test("pending approvals are pruned when a job becomes terminal or is retried", async () => {
+  const adapter = new FakeAdapter();
+  const runtime = new HostRuntime({ adapter, hostId: "h_test_approvals" });
+
+  runtime.createJob({
+    jobId: "j_test_approvals",
+    inputText: "Needs approval"
+  });
+  await runtime.startJob("j_test_approvals");
+
+  adapter.emit("approvalRequest", {
+    id: 101,
+    method: "item/commandExecution/requestApproval",
+    params: {
+      threadId: "thread_1"
+    }
+  });
+
+  assert.equal(runtime.listPendingApprovals("j_test_approvals").length, 1);
+
+  adapter.emit("notification", {
+    method: "thread/status/changed",
+    params: {
+      threadId: "thread_1",
+      status: "cancelled"
+    }
+  });
+
+  assert.equal(runtime.listPendingApprovals("j_test_approvals").length, 0);
+
+  const retried = await runtime.retryJob("j_test_approvals");
+  assert.equal(retried.state, JOB_STATES.QUEUED);
+  assert.equal(runtime.listPendingApprovals("j_test_approvals").length, 0);
 });

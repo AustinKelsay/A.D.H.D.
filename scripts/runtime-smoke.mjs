@@ -23,14 +23,13 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function main() {
-  const shouldInitialize = process.argv.includes("--initialize");
-  const initializeTimeoutMs = readPositiveIntEnv("ADHD_RUNTIME_SMOKE_TIMEOUT_MS", 60000);
+function waitForStarted(processManager, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      cleanup();
+      reject(new Error(`Timed out waiting ${timeoutMs}ms for app-server 'started' event`));
+    }, timeoutMs);
 
-  const processManager = new AppServerProcess();
-  processManager.start();
-
-  const started = await new Promise((resolve, reject) => {
     const onStarted = (event) => {
       cleanup();
       resolve(event);
@@ -40,14 +39,25 @@ async function main() {
       reject(error);
     };
     const cleanup = () => {
+      clearTimeout(timeout);
       processManager.off("started", onStarted);
       processManager.off("error", onError);
     };
+
     processManager.on("started", onStarted);
     processManager.on("error", onError);
   });
+}
+
+async function main() {
+  const shouldInitialize = process.argv.includes("--initialize");
+  const initializeTimeoutMs = readPositiveIntEnv("ADHD_RUNTIME_SMOKE_TIMEOUT_MS", 60000);
+
+  const processManager = new AppServerProcess();
+  processManager.start();
 
   try {
+    const started = await waitForStarted(processManager, initializeTimeoutMs);
     if (!shouldInitialize) {
       // Baseline smoke for constrained environments: ensure the process starts and remains alive briefly.
       await sleep(250);

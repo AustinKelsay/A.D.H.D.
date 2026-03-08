@@ -1153,6 +1153,25 @@ export function createFederationApiHandler({
     return entry;
   };
 
+  const buildCatalogLivePayload = (entry, hostId) => ({
+    ok: true,
+    hostId,
+    job: entry.job,
+    pendingApprovals: [],
+    catalog: entry
+  });
+
+  const buildCatalogResultPayload = (entry, hostId, jobId) => ({
+    ok: true,
+    hostId,
+    jobId,
+    result: {
+      resultSummary: entry.job?.resultSummary ?? null,
+      artifactPaths: Array.isArray(entry.job?.artifactPaths) ? entry.job.artifactPaths : []
+    },
+    catalog: entry
+  });
+
   const setEnrollmentToken = (hostId, token, nowMs = readNowMs()) => {
     enrollmentTokens.set(hostId, {
       token,
@@ -1821,7 +1840,32 @@ export function createFederationApiHandler({
       ) {
         const jobId = parts[2];
         const hostId = await resolveHostForJob(jobId);
-        const response = await invokeHandler(hostHandlers.get(hostId), {
+        const existing = runCatalog.get(jobId);
+        const hostHandler = hostHandlers.get(hostId);
+
+        if (!hostHandler) {
+          if (parts[3] === "live" && existing?.job) {
+            return json(res, 200, buildCatalogLivePayload(existing, hostId));
+          }
+          if (parts[3] === "result" && existing?.job) {
+            const patchedJob = {
+              ...existing.job,
+              resultSummary: existing.job.resultSummary ?? null,
+              artifactPaths: Array.isArray(existing.job.artifactPaths) ? existing.job.artifactPaths : []
+            };
+            const catalogEntry = runCatalog.upsertFromJob(patchedJob, {
+              hostId,
+              source: {
+                kind: "result-read",
+                parentJobId: null
+              }
+            }) || runCatalog.get(jobId) || existing;
+            return json(res, 200, buildCatalogResultPayload(catalogEntry, hostId, jobId));
+          }
+          throw new RuntimeError("HOST_NOT_READY", `No runtime bound for host: ${hostId}`);
+        }
+
+        const response = await invokeHandler(hostHandler, {
           method: "GET",
           url: `/api/jobs/${encodeURIComponent(jobId)}/${parts[3]}`
         });
@@ -1835,7 +1879,6 @@ export function createFederationApiHandler({
             }
           });
         } else if (parts[3] === "result" && response.statusCode === 200) {
-          const existing = runCatalog.get(jobId);
           if (existing?.job) {
             const patchedJob = {
               ...existing.job,
@@ -1852,6 +1895,20 @@ export function createFederationApiHandler({
               }
             });
           }
+        } else if (parts[3] === "result" && existing?.job) {
+          const patchedJob = {
+            ...existing.job,
+            resultSummary: existing.job.resultSummary ?? null,
+            artifactPaths: Array.isArray(existing.job.artifactPaths) ? existing.job.artifactPaths : []
+          };
+          const catalogEntry = runCatalog.upsertFromJob(patchedJob, {
+            hostId,
+            source: {
+              kind: "result-read",
+              parentJobId: null
+            }
+          }) || runCatalog.get(jobId) || existing;
+          return json(res, 200, buildCatalogResultPayload(catalogEntry, hostId, jobId));
         }
 
         return json(res, response.statusCode, {

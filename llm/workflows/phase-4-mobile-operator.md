@@ -71,6 +71,24 @@ curl -sS -X POST http://127.0.0.1:8787/api/mobile/jobs/<jobId>/retry \
   -d '{"startNow":true}'
 ```
 
+### Approve pending request
+Use the `requestId` from `GET /api/mobile/jobs/<jobId>/live` under `pendingApprovals`.
+
+```bash
+curl -sS -X POST http://127.0.0.1:8787/api/mobile/approvals/<requestId>/approve \
+  -H 'content-type: application/json' \
+  -H 'authorization: Bearer <TOKEN>' \
+  -d '{"result":{"approved":true,"notes":"Proceed with the change"}}'
+```
+
+### Reject pending request
+```bash
+curl -sS -X POST http://127.0.0.1:8787/api/mobile/approvals/<requestId>/reject \
+  -H 'content-type: application/json' \
+  -H 'authorization: Bearer <TOKEN>' \
+  -d '{"message":"Rejected from mobile operator flow"}'
+```
+
 ## 5) Reconnect-Safe Event Replay
 
 ### Poll events from cursor

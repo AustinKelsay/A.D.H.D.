@@ -33,7 +33,7 @@ curl -sS -X POST "http://127.0.0.1:8787/api/jobs/j_example001/rerun" \
 curl -sS -X POST "http://127.0.0.1:8787/api/jobs/j_example001/clone" \
   -H "authorization: Bearer <CONTROL_PLANE_TOKEN>" \
   -H "content-type: application/json" \
-  -d '{"jobId":"j_clone001","startNow":true}'
+  -d '{"jobId":"j_clone001","startNow":true,"hostId":"<HOST_ID_OR_NAME>"}'
 ```
 
 ## Expected Outcomes

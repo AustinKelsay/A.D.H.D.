@@ -40,7 +40,9 @@ export function resolveCodexCommand(command, fallbackBin = "codex") {
 }
 
 export function resolveDelegationPolicy(workflowStore, envDefaults) {
-  const current = workflowStore.current();
+  const current = typeof workflowStore.currentWithoutRefresh === "function"
+    ? workflowStore.currentWithoutRefresh()
+    : workflowStore.current();
   if (!current.ok) {
     return { ...envDefaults };
   }

@@ -59,3 +59,11 @@ test("normalizeIntent snapshots hostConstraints and metadata", () => {
   assert.equal(hostConstraints.limits.cpu, 8);
   assert.deepEqual(metadata.labels, ["ops", "after"]);
 });
+
+test("normalizeIntent only extracts explicit path prefixes", () => {
+  const intent = normalizeIntent({
+    inputText: "Review version 1.2.3, check https://example.com/docs, and patch ../src/app.js plus /tmp/report.txt"
+  });
+
+  assert.deepEqual(intent.paths, ["../src/app.js", "/tmp/report.txt"]);
+});

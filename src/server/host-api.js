@@ -911,17 +911,28 @@ export function createHostApiHandler({
     }
 
     metrics.workflowHooks.attempts += 1;
+    let countedFailure = false;
     try {
       const result = await hookRunner[hookMethod](job);
       if (result?.ok === false) {
         metrics.workflowHooks.failures += 1;
         metrics.workflowHooks.lastFailureCode = "WORKFLOW_HOOK_FAILED";
+        countedFailure = true;
+        if (required) {
+          throw new RuntimeError(
+            "WORKFLOW_HOOK_FAILED",
+            `Workflow hook failed: ${hookMethod}`,
+            result
+          );
+        }
       } else {
         metrics.workflowHooks.successes += 1;
       }
       return result;
     } catch (error) {
-      metrics.workflowHooks.failures += 1;
+      if (!countedFailure) {
+        metrics.workflowHooks.failures += 1;
+      }
       metrics.workflowHooks.lastFailureCode = error?.code || "WORKFLOW_HOOK_FAILED";
       if (required) {
         throw error;
@@ -1480,7 +1491,7 @@ export function createHostApiHandler({
 
         const existingJob = typeof runtime.getJob === "function" ? runtime.getJob(parts[2]) : null;
         let job = await runtime.retryJob(parts[2]);
-        await runHookStage("beforeRemove", job || existingJob, { required: false });
+        await runHookStage("beforeRemove", existingJob || job, { required: false });
         if (body.startNow === true) {
           await runHookStage("beforeRun", job, { required: true });
           const startParams = resolveStartParams(options, body.startParams || {});

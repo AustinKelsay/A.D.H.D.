@@ -70,7 +70,11 @@ function envPositiveInt(name, defaultValue) {
 }
 
 function parseHostIds() {
-  const source = process.env.ADHD_FED_HOSTS || "h_alpha01,h_bravo02";
+  const rawEnv = process.env.ADHD_FED_HOSTS;
+  const source = rawEnv === undefined ? "h_alpha01,h_bravo02" : rawEnv;
+  if (String(source).trim() === "") {
+    throw new Error("ADHD_FED_HOSTS must contain at least one host id.");
+  }
   const rawIds = source
     .split(",")
     .map((value) => value.trim())
@@ -142,21 +146,7 @@ async function initializeHostRuntime({
     }
     process.stderr.write(`[${hostId}] ${line}`);
   });
-  processManager.start();
-
-  const rpcClient = processManager.createRpcClient({
-    requestTimeoutMs: codexPolicy.readTimeoutMs,
-    outgoingMode: rpcOutgoingMode
-  });
-
-  const adapter = new CodexAppServerAdapter({
-    rpcClient,
-    availableMethods: loadAvailableMethods()
-  });
-  const runtime = new HostRuntime({
-    adapter,
-    hostId
-  });
+  let rpcClient = null;
 
   const runtimeStatus = {
     ready: false,
@@ -165,47 +155,86 @@ async function initializeHostRuntime({
     skipInitialize
   };
 
-  if (skipInitialize) {
-    runtimeStatus.ready = true;
-  } else {
-    try {
-      await runtime.initialize();
+  try {
+    processManager.start();
+
+    rpcClient = processManager.createRpcClient({
+      requestTimeoutMs: codexPolicy.readTimeoutMs,
+      outgoingMode: rpcOutgoingMode
+    });
+
+    const adapter = new CodexAppServerAdapter({
+      rpcClient,
+      availableMethods: loadAvailableMethods()
+    });
+    const runtime = new HostRuntime({
+      adapter,
+      hostId
+    });
+
+    if (skipInitialize) {
       runtimeStatus.ready = true;
-      runtimeStatus.initializedAt = new Date().toISOString();
-    } catch (error) {
-      runtimeStatus.ready = false;
-      runtimeStatus.error = {
-        code: error.code || "INITIALIZE_FAILED",
-        message: error.message
-      };
+    } else {
+      try {
+        await runtime.initialize();
+        runtimeStatus.ready = true;
+        runtimeStatus.initializedAt = new Date().toISOString();
+      } catch (error) {
+        runtimeStatus.ready = false;
+        runtimeStatus.error = {
+          code: error.code || "INITIALIZE_FAILED",
+          message: error.message
+        };
+      }
+    }
+
+    runtime.on("approvalRequested", (event) => {
+      emitStructuredEvent("approvalRequested", { ...(event || {}), hostId });
+    });
+
+    return {
+      processManager,
+      rpcClient,
+      runtime,
+      hostConfig: {
+        runtime,
+        isRuntimeReady: () => runtimeStatus.ready,
+        getRuntimeStatus: () => ({ ...runtimeStatus }),
+        getHostCapabilities: () => ({ ...defaultHostCapabilities }),
+        getDelegationPolicy: () => resolveDelegationPolicy(workflowStore, envDelegationPolicy),
+        getMobileConfig: () => ({ ...mobileRuntimeConfig }),
+        getWorkflowStatus: () => workflowStore.status(),
+        validateWorkflowPreflight: () => workflowStore.preflight(),
+        getWorkflowStartDefaults: () => workflowStore.getStartDefaults(),
+        getWorkflowHookPolicy: () => workflowStore.getHookPolicy(),
+        getWorkflowWorkspacePolicy: () => workflowStore.getWorkspacePolicy(),
+        refreshWorkflow: () => workflowStore.refreshAsync(),
+        logEvent: (event) => emitStructuredEvent("hostApiTelemetry", { ...(event || {}), hostId })
+      },
+      runtimeStatus
+    };
+  } catch (error) {
+    if (rpcClient) {
+      rpcClient.close();
+    }
+    await processManager.stop().catch(() => {});
+    throw error;
+  }
+}
+
+async function stopHostResources(hostResources = []) {
+  for (const resource of hostResources) {
+    try {
+      resource.rpcClient.close();
+    } catch {
+      // best effort
+    }
+    try {
+      await resource.processManager.stop();
+    } catch {
+      // best effort
     }
   }
-
-  runtime.on("approvalRequested", (event) => {
-    emitStructuredEvent("approvalRequested", { ...(event || {}), hostId });
-  });
-
-  return {
-    processManager,
-    rpcClient,
-    runtime,
-    hostConfig: {
-      runtime,
-      isRuntimeReady: () => runtimeStatus.ready,
-      getRuntimeStatus: () => ({ ...runtimeStatus }),
-      getHostCapabilities: () => ({ ...defaultHostCapabilities }),
-      getDelegationPolicy: () => resolveDelegationPolicy(workflowStore, envDelegationPolicy),
-      getMobileConfig: () => ({ ...mobileRuntimeConfig }),
-      getWorkflowStatus: () => workflowStore.status(),
-      validateWorkflowPreflight: () => workflowStore.preflight(),
-      getWorkflowStartDefaults: () => workflowStore.getStartDefaults(),
-      getWorkflowHookPolicy: () => workflowStore.getHookPolicy(),
-      getWorkflowWorkspacePolicy: () => workflowStore.getWorkspacePolicy(),
-      refreshWorkflow: () => workflowStore.refreshAsync(),
-      logEvent: (event) => emitStructuredEvent("hostApiTelemetry", { ...(event || {}), hostId })
-    },
-    runtimeStatus
-  };
 }
 
 async function main() {
@@ -246,73 +275,85 @@ async function main() {
 
   const hostResources = [];
   const hosts = {};
-  for (const hostId of hostIds) {
-    const hostResource = await initializeHostRuntime({
-      hostId,
-      skipInitialize,
-      rpcOutgoingMode,
-      workflowStore,
-      defaultHostCapabilities,
-      envDelegationPolicy,
-      mobileRuntimeConfig
+  let server = null;
+  try {
+    for (const hostId of hostIds) {
+      const hostResource = await initializeHostRuntime({
+        hostId,
+        skipInitialize,
+        rpcOutgoingMode,
+        workflowStore,
+        defaultHostCapabilities,
+        envDelegationPolicy,
+        mobileRuntimeConfig
+      });
+      hostResources.push(hostResource);
+      hosts[hostId] = hostResource.hostConfig;
+    }
+
+    const handler = createFederationApiHandler({
+      hosts,
+      catalogStorePath: envString(
+        "ADHD_FED_CATALOG_PATH",
+        path.join(process.cwd(), ".adhd", "federation-run-catalog.json")
+      ),
+      heartbeatDegradedMs: envPositiveInt("ADHD_HEARTBEAT_DEGRADED_MS", 15000),
+      heartbeatOfflineMs: envPositiveInt("ADHD_HEARTBEAT_OFFLINE_MS", 30000),
+      expectedWorkflowHash: workflowStore.status().contentHash,
+      workflowDriftPolicy: resolvedWorkflowDriftPolicy,
+      logEvent: (event) => emitStructuredEvent("federationTelemetry", event)
     });
-    hostResources.push(hostResource);
-    hosts[hostId] = hostResource.hostConfig;
+
+    server = http.createServer((req, res) => {
+      handler(req, res).catch((error) => {
+        res.statusCode = 500;
+        res.setHeader("content-type", "application/json; charset=utf-8");
+        res.end(
+          `${JSON.stringify(
+            {
+              ok: false,
+              error: {
+                code: error.code || "INTERNAL_ERROR",
+                message: error.message
+              }
+            },
+            null,
+            2
+          )}\n`
+        );
+      });
+    });
+
+    await new Promise((resolve, reject) => {
+      const onError = (error) => {
+        server.off("listening", onListening);
+        reject(error);
+      };
+      const onListening = () => {
+        server.off("error", onError);
+        resolve();
+      };
+      server.once("error", onError);
+      server.once("listening", onListening);
+      server.listen(port, "127.0.0.1");
+    });
+  } catch (error) {
+    if (server?.listening) {
+      await new Promise((resolve) => server.close(resolve));
+    }
+    await stopHostResources(hostResources);
+    throw error;
   }
 
-  const handler = createFederationApiHandler({
-    hosts,
-    catalogStorePath: envString(
-      "ADHD_FED_CATALOG_PATH",
-      path.join(process.cwd(), ".adhd", "federation-run-catalog.json")
-    ),
-    heartbeatDegradedMs: envPositiveInt("ADHD_HEARTBEAT_DEGRADED_MS", 15000),
-    heartbeatOfflineMs: envPositiveInt("ADHD_HEARTBEAT_OFFLINE_MS", 30000),
-    expectedWorkflowHash: workflowStore.status().contentHash,
-    workflowDriftPolicy: resolvedWorkflowDriftPolicy,
-    logEvent: (event) => emitStructuredEvent("federationTelemetry", event)
-  });
-
-  const server = http.createServer((req, res) => {
-    handler(req, res).catch((error) => {
-      res.statusCode = 500;
-      res.setHeader("content-type", "application/json; charset=utf-8");
-      res.end(
-        `${JSON.stringify(
-          {
-            ok: false,
-            error: {
-              code: error.code || "INTERNAL_ERROR",
-              message: error.message
-            }
-          },
-          null,
-          2
-        )}\n`
-      );
-    });
-  });
-
-  await new Promise((resolve, reject) => {
-    const onError = (error) => {
-      server.off("listening", onListening);
-      reject(error);
-    };
-    const onListening = () => {
-      server.off("error", onError);
-      resolve();
-    };
-    server.once("error", onError);
-    server.once("listening", onListening);
-    server.listen(port, "127.0.0.1");
-  });
+  const boundAddress = server.address();
+  const boundPort = typeof boundAddress === "object" && boundAddress ? boundAddress.port : port;
 
   process.stdout.write(
     `${JSON.stringify(
       {
         ok: true,
         controlPlane: true,
-        port,
+        port: boundPort,
         hostIds,
         runtime: {
           skipInitialize,
@@ -333,10 +374,7 @@ async function main() {
   const shutdown = async (signal) => {
     process.stdout.write(`Shutting down federation API (${signal})...\n`);
     await new Promise((resolve) => server.close(resolve));
-    for (const resource of hostResources) {
-      resource.rpcClient.close();
-      await resource.processManager.stop();
-    }
+    await stopHostResources(hostResources);
     process.exit(0);
   };
 

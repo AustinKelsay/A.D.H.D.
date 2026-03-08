@@ -150,6 +150,74 @@ test("validateStructuredPlan fails when paths include non-string entries", () =>
   );
 });
 
+test("validateStructuredPlan fails when constraints include non-string entries", () => {
+  const intent = normalizeIntent({
+    inputText: "Fix bug in ./src/runtime/host-runtime.js"
+  });
+
+  const plan = buildDeterministicPlan(intent, {
+    promptVersion: "conductor.v1",
+    requestedMode: "fallback_workers",
+    delegationPolicy: {},
+    hostCapabilities: { multi_agent: false }
+  });
+
+  plan.constraints = ["respect-negative-instructions", null];
+
+  assert.throws(
+    () => validateStructuredPlan(plan, { intent }),
+    (error) =>
+      error instanceof RuntimeError
+      && error.code === "INVALID_PLAN"
+      && error.message.includes("constraints must be an array of strings")
+  );
+});
+
+test("validateStructuredPlan fails when delegation audit fields are missing", () => {
+  const intent = normalizeIntent({
+    inputText: "Fix bug in ./src/runtime/host-runtime.js"
+  });
+
+  const plan = buildDeterministicPlan(intent, {
+    promptVersion: "conductor.v1",
+    requestedMode: "fallback_workers",
+    delegationPolicy: {},
+    hostCapabilities: { multi_agent: false }
+  });
+
+  delete plan.delegation.policy;
+
+  assert.throws(
+    () => validateStructuredPlan(plan, { intent }),
+    (error) =>
+      error instanceof RuntimeError
+      && error.code === "INVALID_PLAN"
+      && error.message.includes("delegation.policy")
+  );
+});
+
+test("buildDeterministicPlan detaches caller-owned path and constraint arrays", () => {
+  const intent = normalizeIntent({
+    inputText: "Fix bug in ./src/runtime/host-runtime.js",
+    hostConstraints: { hostId: "h_local", sandbox: "workspace-write" }
+  });
+
+  const plan = buildDeterministicPlan(intent, {
+    promptVersion: "conductor.v1",
+    requestedMode: "fallback_workers",
+    delegationPolicy: {},
+    hostCapabilities: { multi_agent: false }
+  });
+
+  intent.paths.push("./src/other.js");
+  intent.constraints.push("high-priority");
+  intent.hostConstraints.hostId = "h_other";
+
+  assert.deepEqual(plan.paths, ["./src/runtime/host-runtime.js"]);
+  assert.deepEqual(plan.constraints, []);
+  assert.deepEqual(plan.hostConstraints, { hostId: "h_local", sandbox: "workspace-write" });
+});
+
 test("buildDeterministicPlan fails fast with INVALID_INPUT for malformed intent", () => {
   assert.throws(
     () =>

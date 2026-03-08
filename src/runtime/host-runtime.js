@@ -86,6 +86,11 @@ export class HostRuntime extends EventEmitter {
     this.adapter.on("approvalRequest", (message) => this.onApprovalRequest(message));
     this.adapter.on("decodeError", (error) => this.emit("decodeError", error));
     this.adapter.on("error", (error) => this.emit("error", error));
+    this.store.on("transition", (event) => {
+      if (TERMINAL_STATES.has(event?.to) || (event?.to === JOB_STATES.QUEUED && TERMINAL_STATES.has(event?.from))) {
+        this.pruneApprovalsForJob(event.jobId);
+      }
+    });
   }
 
   async initialize() {
@@ -210,7 +215,7 @@ export class HostRuntime extends EventEmitter {
   getJobResult(jobId) {
     const job = this.requireJob(jobId);
     return {
-      resultSummary: typeof job.resultSummary === "string" ? job.resultSummary : "",
+      resultSummary: job.resultSummary,
       artifactPaths: Array.isArray(job.artifactPaths) ? job.artifactPaths.slice() : []
     };
   }
@@ -221,6 +226,14 @@ export class HostRuntime extends EventEmitter {
       return approvals;
     }
     return approvals.filter((entry) => entry.jobId === jobId);
+  }
+
+  pruneApprovalsForJob(jobId) {
+    for (const [requestId, entry] of this.pendingApprovals.entries()) {
+      if (entry?.jobId === jobId) {
+        this.pendingApprovals.delete(requestId);
+      }
+    }
   }
 
   approveRequest(requestId, result = { approved: true }) {

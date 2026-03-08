@@ -65,7 +65,7 @@ class FakeRuntime extends EventEmitter {
   }
 
   async startJob(jobId, startParams = {}) {
-    const job = this.getJob(jobId);
+    const job = this.jobs.get(jobId) || null;
     if (!job) {
       throw new RuntimeError("JOB_NOT_FOUND", `Job not found: ${jobId}`);
     }
@@ -88,7 +88,7 @@ class FakeRuntime extends EventEmitter {
   }
 
   async interruptJob(jobId) {
-    const job = this.getJob(jobId);
+    const job = this.jobs.get(jobId) || null;
     if (!job) {
       throw new RuntimeError("JOB_NOT_FOUND", `Job not found: ${jobId}`);
     }
@@ -115,7 +115,7 @@ class FakeRuntime extends EventEmitter {
   }
 
   async retryJob(jobId) {
-    const job = this.getJob(jobId);
+    const job = this.jobs.get(jobId) || null;
     if (!job) {
       throw new RuntimeError("JOB_NOT_FOUND", `Job not found: ${jobId}`);
     }
@@ -143,7 +143,7 @@ class FakeRuntime extends EventEmitter {
   }
 
   getJobResult(jobId) {
-    const job = this.getJob(jobId);
+    const job = this.jobs.get(jobId) || null;
     if (!job) {
       throw new RuntimeError("JOB_NOT_FOUND", `Job not found: ${jobId}`);
     }
@@ -956,6 +956,11 @@ test("workflow retry cleanup runs only after a successful retry", async () => {
   const markerPath = path.join(tempDir, "before_remove.txt");
   try {
     const runtime = new FakeRuntime();
+    const originalGetJob = runtime.getJob.bind(runtime);
+    runtime.getJob = (jobId) => {
+      const job = originalGetJob(jobId);
+      return job ? structuredClone(job) : null;
+    };
     const handler = createHostApiHandler({
       runtime,
       hostId: "h_test",
@@ -969,7 +974,7 @@ test("workflow retry cleanup runs only after a successful retry", async () => {
         afterCreate: `node -e 'require("node:fs").mkdirSync(process.env.ADHD_WORKSPACE_PATH, { recursive: true })'`,
         beforeRun: null,
         afterRun: null,
-        beforeRemove: `node -e 'require("node:fs").writeFileSync(${JSON.stringify(markerPath)}, process.env.ADHD_JOB_ID)'`
+        beforeRemove: `node -e 'require("node:fs").writeFileSync(${JSON.stringify(markerPath)}, process.env.ADHD_HOOK_CONTEXT)'`
       })
     });
 
@@ -1013,6 +1018,9 @@ test("workflow retry cleanup runs only after a successful retry", async () => {
     });
     assert.equal(successfulRetry.statusCode, 200);
     await waitForExists(markerPath);
+    const hookContext = fs.readFileSync(markerPath, "utf8");
+    assert.match(hookContext, /"jobId":"j_hook_retry_order"/);
+    assert.match(hookContext, /"state":"cancelled"/);
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
@@ -1209,6 +1217,43 @@ test("mobile pairing/session lifecycle works end-to-end", async () => {
 
   assert.equal(afterRevoke.statusCode, 401);
   assert.equal(afterRevoke.json.error.code, "MOBILE_UNAUTHORIZED");
+});
+
+test("mobile pairing events do not replay raw pairing codes", async () => {
+  const runtime = new FakeRuntime();
+  const handler = createHostApiHandler({ runtime, hostId: "h_test" });
+
+  const started = await invoke(handler, {
+    method: "POST",
+    url: "/api/mobile/pairing/start",
+    body: JSON.stringify({ deviceLabel: "pixel-safe" })
+  });
+  assert.equal(started.statusCode, 201);
+  assert.equal(typeof started.json.pairing.pairingCode, "string");
+  assert.equal(typeof started.json.pairing.pairingId, "string");
+
+  const completed = await invoke(handler, {
+    method: "POST",
+    url: "/api/mobile/pairing/complete",
+    body: JSON.stringify({
+      pairingCode: started.json.pairing.pairingCode,
+      deviceLabel: "pixel-safe"
+    })
+  });
+  assert.equal(completed.statusCode, 200);
+
+  const events = await invoke(handler, {
+    method: "GET",
+    url: "/api/mobile/events",
+    headers: {
+      authorization: `Bearer ${completed.json.token}`
+    }
+  });
+  assert.equal(events.statusCode, 200);
+  const pairingEvent = events.json.events.find((event) => event.type === "mobile.pairing.started");
+  assert.equal(Boolean(pairingEvent), true);
+  assert.equal(typeof pairingEvent.payload.pairingId, "string");
+  assert.equal("pairingCode" in pairingEvent.payload, false);
 });
 
 test("mobile pairing start enforces max pending pairing capacity", async () => {

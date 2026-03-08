@@ -4,6 +4,7 @@
 Track implementation from single-host baseline to multi-host orchestration.
 
 ## Phase Order
+This list is ordinal (`1..n`). The project phase names themselves are zero-based, so item `11` below is the document for `Phase 10`.
 1. `setup-phase.md`
 2. `session-runtime-phase.md`
 3. `intent-router-phase.md`
@@ -24,4 +25,4 @@ Track implementation from single-host baseline to multi-host orchestration.
 
 ## Current Milestone
 - `operations-and-sustainment-phase.md` is complete.
-- No Phase 11 is defined yet.
+- No Phase 11 is defined yet; `Phase 10` is the latest defined project phase.

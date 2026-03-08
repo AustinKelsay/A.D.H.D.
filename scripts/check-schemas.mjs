@@ -18,11 +18,58 @@ function assertIncludes(haystack, needle, label) {
   }
 }
 
+function assertRequiredSuperset(actual, expected, label) {
+  if (!Array.isArray(actual)) {
+    throw new Error(`${label} must be an array`);
+  }
+  for (const entry of expected) {
+    if (!actual.includes(entry)) {
+      throw new Error(`${label} must include '${entry}'`);
+    }
+  }
+}
+
+function assertNullableAnyOf(anyOf, label) {
+  if (!Array.isArray(anyOf)) {
+    throw new Error(`${label} must be present`);
+  }
+  const hasNullBranch = anyOf.some((entry) => entry?.type === "null" || entry?.const === null);
+  if (!hasNullBranch) {
+    throw new Error(`${label} must include a nullable branch`);
+  }
+}
+
 function main() {
   const host = readJson("config/schemas/host.schema.json");
   const job = readJson("config/schemas/job.schema.json");
   const intent = readJson("config/schemas/intent.schema.json");
   const plan = readJson("config/schemas/plan.schema.json");
+  const expectedRequiredIntent = [
+    "contractVersion",
+    "rawText",
+    "normalizedText",
+    "workType",
+    "profileHint",
+    "target",
+    "paths",
+    "constraints",
+    "hostConstraints",
+    "metadata"
+  ];
+  const expectedRequiredPlan = [
+    "contractVersion",
+    "intentContractVersion",
+    "promptVersion",
+    "summary",
+    "workType",
+    "target",
+    "paths",
+    "constraints",
+    "hostConstraints",
+    "steps",
+    "delegation",
+    "metadata"
+  ];
 
   assertIncludes(host.required, "hostId", "host.required");
   assertIncludes(host.required, "capabilities", "host.required");
@@ -37,24 +84,15 @@ function main() {
   assertIncludes(jobPropKeys, "intent", "job.properties");
   assertIncludes(jobPropKeys, "plan", "job.properties");
   assertIncludes(jobPropKeys, "delegationDecision", "job.properties");
-  if (!Array.isArray(job?.properties?.intent?.anyOf)) {
-    throw new Error("job.properties.intent.anyOf must be present");
-  }
-  if (!Array.isArray(job?.properties?.plan?.anyOf)) {
-    throw new Error("job.properties.plan.anyOf must be present");
-  }
+  assertNullableAnyOf(job?.properties?.intent?.anyOf, "job.properties.intent.anyOf");
+  assertNullableAnyOf(job?.properties?.plan?.anyOf, "job.properties.plan.anyOf");
 
-  assertIncludes(intent.required, "contractVersion", "intent.required");
-  assertIncludes(intent.required, "rawText", "intent.required");
-  assertIncludes(intent.required, "normalizedText", "intent.required");
-  assertIncludes(intent.required, "profileHint", "intent.required");
+  assertRequiredSuperset(intent.required, expectedRequiredIntent, "intent.required");
   const profileHints = intent?.properties?.profileHint?.enum || [];
   assertIncludes(profileHints, "multi_agent", "intent.properties.profileHint.enum");
   assertIncludes(profileHints, "fallback_workers", "intent.properties.profileHint.enum");
 
-  assertIncludes(plan.required, "contractVersion", "plan.required");
-  assertIncludes(plan.required, "steps", "plan.required");
-  assertIncludes(plan.required, "delegation", "plan.required");
+  assertRequiredSuperset(plan.required, expectedRequiredPlan, "plan.required");
   const planModes = plan?.properties?.delegation?.properties?.selectedMode?.enum || [];
   assertIncludes(planModes, "multi_agent", "plan.properties.delegation.properties.selectedMode.enum");
   assertIncludes(planModes, "fallback_workers", "plan.properties.delegation.properties.selectedMode.enum");

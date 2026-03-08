@@ -13,7 +13,8 @@ function normalizeWhitespace(text) {
 }
 
 function extractPaths(text) {
-  const matches = text.match(/(?:\.|\/)\S+/g) || [];
+  const matches = [...text.matchAll(/(?:^|[\s("'`])((?:\.\.\/|\.\/|\/(?!\/))\S+)/g)]
+    .map((match) => match[1]);
   return [...new Set(matches.map((m) => m.replace(/[.,;:!?]+$/, "")))];
 }
 

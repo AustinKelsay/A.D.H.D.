@@ -31,14 +31,21 @@ function validatePlanningIntent(intent) {
   }
 }
 
-function stableFingerprint(intent) {
+function stableFingerprint({
+  normalizedText,
+  workType,
+  target,
+  paths,
+  constraints,
+  hostConstraints
+}) {
   const source = JSON.stringify({
-    normalizedText: intent.normalizedText,
-    workType: intent.workType,
-    target: intent.target,
-    paths: intent.paths,
-    constraints: intent.constraints,
-    hostConstraints: intent.hostConstraints
+    normalizedText,
+    workType,
+    target,
+    paths,
+    constraints,
+    hostConstraints
   });
 
   return createHash("sha1").update(source).digest("hex");
@@ -106,6 +113,12 @@ export function buildDeterministicPlan(intent, {
 } = {}) {
   validatePlanningIntent(intent);
 
+  const paths = intent.paths.slice();
+  const constraints = intent.constraints.slice();
+  const hostConstraints = intent.hostConstraints === null || intent.hostConstraints === undefined
+    ? null
+    : structuredClone(intent.hostConstraints);
+
   const delegation = resolveDelegationMode({
     requestedMode,
     profileHint: intent.profileHint,
@@ -120,14 +133,21 @@ export function buildDeterministicPlan(intent, {
     summary: summarize(intent),
     workType: intent.workType,
     target: intent.target,
-    paths: intent.paths,
-    constraints: intent.constraints,
-    hostConstraints: intent.hostConstraints || null,
+    paths,
+    constraints,
+    hostConstraints,
     steps: buildSteps(intent),
     delegation,
     metadata: {
       planner: "intent-router.v1",
-      fingerprint: stableFingerprint(intent)
+      fingerprint: stableFingerprint({
+        normalizedText: intent.normalizedText,
+        workType: intent.workType,
+        target: intent.target,
+        paths,
+        constraints,
+        hostConstraints
+      })
     }
   };
 
