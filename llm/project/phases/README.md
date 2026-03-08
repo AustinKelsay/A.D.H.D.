@@ -4,6 +4,7 @@
 Track implementation from single-host baseline to multi-host orchestration.
 
 ## Phase Order
+This list is ordinal (`1..n`). The project phase names themselves are zero-based, so item `11` below is the document for `Phase 10`.
 1. `setup-phase.md`
 2. `session-runtime-phase.md`
 3. `intent-router-phase.md`
@@ -14,11 +15,14 @@ Track implementation from single-host baseline to multi-host orchestration.
 8. `reliability-and-observability-phase.md`
 9. `review-and-hardening-phase.md`
 10. `release-and-distribution-phase.md`
+11. `operations-and-sustainment-phase.md`
 
 ## Execution Rules
 - Stabilize host-local runtime before federation features.
 - Keep single-host mode functional while adding multi-host capabilities.
 - Experimental Codex features always require fallback behavior.
+- Treat `WORKFLOW.md` as the repo-owned contract for prompt, runtime policy, and hooks; runtime behavior changes should flow through this contract.
 
 ## Current Milestone
-- `setup-phase.md` is the active restart point.
+- `operations-and-sustainment-phase.md` is complete.
+- No Phase 11 is defined yet; `Phase 10` is the latest defined project phase.

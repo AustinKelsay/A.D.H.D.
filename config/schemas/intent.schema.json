@@ -1,0 +1,67 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://adhd.local/schemas/intent.schema.json",
+  "title": "IntentRecord",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contractVersion",
+    "rawText",
+    "normalizedText",
+    "workType",
+    "profileHint",
+    "target",
+    "paths",
+    "constraints",
+    "hostConstraints",
+    "metadata"
+  ],
+  "properties": {
+    "contractVersion": {
+      "type": "string",
+      "const": "intent.v1"
+    },
+    "rawText": {
+      "type": "string",
+      "minLength": 1
+    },
+    "normalizedText": {
+      "type": "string",
+      "minLength": 1
+    },
+    "workType": {
+      "type": "string",
+      "minLength": 1
+    },
+    "profileHint": {
+      "type": "string",
+      "enum": ["multi_agent", "fallback_workers"]
+    },
+    "target": {
+      "type": "string",
+      "minLength": 1
+    },
+    "paths": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "constraints": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "hostConstraints": {
+      "type": ["object", "null"]
+    },
+    "metadata": {
+      "type": ["object", "null"]
+    }
+  }
+}

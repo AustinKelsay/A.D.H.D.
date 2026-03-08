@@ -8,6 +8,7 @@ Enable one ADHD control plane to orchestrate multiple host machines.
 - host heartbeat/capability sync
 - per-job host targeting and host-aware dispatch
 - host outage handling and recovery behavior
+- host-aware workflow contract visibility (workflow version/hash per host)
 
 ## Work Items
 1. Host registry
@@ -25,7 +26,55 @@ Enable one ADHD control plane to orchestrate multiple host machines.
 5. Outage policy
 - Define and implement behavior for offline hosts and stranded jobs.
 
+6. Workflow drift handling
+- Surface host workflow version/hash and block unsafe dispatch when workflow policy drift exceeds configured tolerance.
+
+## Current Baseline Artifacts
+- `src/server/federation-api.js`
+- `src/server/host-api.js`
+- `config/schemas/host.schema.json`
+- `config/schemas/job.schema.json`
+- `test/federation-api.test.js`
+- `llm/workflows/phase-5-federation-operator.md`
+
+## API Surface (Phase 5 Additions)
+- `POST /api/hosts/register`
+  - Registers host metadata and returns one-time enrollment token.
+- `POST /api/hosts/:hostId/enroll`
+  - Exchanges enrollment token for scoped host heartbeat token.
+- `POST /api/hosts/:hostId/heartbeat`
+  - Authenticated host heartbeat and capability/compatibility sync.
+- `POST /api/hosts/:hostId/revoke`
+  - Revokes host auth tokens and blocks new dispatch.
+- `GET /api/hosts`
+  - Lists hosts with auth + heartbeat status.
+- `GET /api/hosts/:hostId`
+  - Returns one host record.
+- `POST /api/jobs` (control-plane)
+  - Requires `hostId`; routes intake/create to that specific host.
+- `GET /api/jobs` (control-plane aggregation)
+  - Aggregates jobs across configured hosts.
+  - Supports optional `hostId` query filter to limit results to one host.
+  - Returns host-bound job records (including `hostId`) for control-plane views.
+- `POST /api/jobs/:jobId/start|interrupt|retry`
+  - Routes control actions to routed host.
+- `POST /api/hosts/reconcile`
+  - Reports outage-blocked in-flight jobs deterministically.
+
+## Phase 5 Policy Notes
+- Host enrollment and heartbeat are token-gated.
+- Control-plane privileged mutation routes MUST be operator-auth gated via `verifyControlPlaneToken` in non-local (staging and production) environments; local development may allow relaxed checks.
+- Dispatch/start/retry/interrupt are blocked unless host is `enrolled` and `online`.
+- Revoked hosts cannot receive new jobs.
+- Outage behavior is deterministic and test-covered.
+
 ## Exit Criteria
 - same app can operate Host A and Host B
 - each job is clearly bound to one host
 - outage handling is deterministic and test-covered
+- operator can inspect workflow version parity across hosts
+
+## Verification Commands
+- `npm run federation-api:start`
+- `npm test`
+- `npm run phase5:verify`

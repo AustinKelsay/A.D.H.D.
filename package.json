@@ -12,8 +12,18 @@
     "test": "node --test",
     "runtime:smoke": "node scripts/runtime-smoke.mjs",
     "host-api:start": "node scripts/start-host-api.mjs",
+    "federation-api:start": "node scripts/start-federation-api.mjs",
     "phase0:verify": "node scripts/health-check.mjs && node scripts/check-schemas.mjs && node scripts/check-compatibility.mjs",
     "phase1:verify": "node --test && node scripts/runtime-smoke.mjs",
+    "phase2:verify": "node --test && node scripts/check-schemas.mjs && node scripts/docs-lint.mjs",
+    "phase3:verify": "npm run phase2:verify",
+    "phase4:verify": "npm run phase3:verify",
+    "phase5:verify": "npm run phase4:verify",
+    "phase6:verify": "npm run phase5:verify",
+    "phase7:verify": "npm run phase6:verify && npm run compat:check",
+    "phase8:verify": "npm run phase7:verify && node --test test/workflow-store.test.js test/host-api.test.js test/federation-api.test.js",
+    "phase9:verify": "npm run phase8:verify && node scripts/health-check.mjs --mode=both && node scripts/runtime-smoke.mjs",
+    "phase10:verify": "npm run phase9:verify",
     "docs:lint": "node scripts/docs-lint.mjs"
   }
 }
