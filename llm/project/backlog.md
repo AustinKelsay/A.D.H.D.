@@ -281,3 +281,116 @@
 - Done when:
   - operators have a single runbook for daily checks, incident triage, and maintenance windows
   - recurring operational checks are documented against current health/metrics/workflow signals
+
+## Phase 11: Tauri App Shell
+
+### ADHD2-1101 Tauri shell scaffold
+- Owner: shared
+- Size: L
+- Depends on: ADHD2-1002
+- Status: done
+- Done when:
+  - a Tauri v2 app shell exists in-repo under `apps/`
+  - the shell can be used as the base for desktop and later mobile clients
+
+### ADHD2-1102 Shared app API client
+- Owner: agent
+- Size: M
+- Depends on: ADHD2-1101
+- Status: done
+- Done when:
+  - app-side host and federation API boundaries are explicit
+  - client config for local/staging endpoints is documented and testable
+
+### ADHD2-1103 Shell readiness view
+- Owner: agent
+- Size: M
+- Depends on: ADHD2-1102
+- Status: done
+- Done when:
+  - the shell can display host and federation readiness
+  - local development against the current backend is documented
+
+## Phase 12: Desktop Client
+
+### ADHD2-1201 Desktop intake and job views
+- Owner: shared
+- Size: L
+- Depends on: ADHD2-1103
+- Done when:
+  - desktop users can create jobs and inspect job lists/details from the app
+
+### ADHD2-1202 Desktop controls and approvals
+- Owner: agent
+- Size: L
+- Depends on: ADHD2-1201
+- Done when:
+  - desktop users can start, interrupt, retry, and approve jobs from the app
+
+## Phase 13: Mobile Client
+
+### ADHD2-1301 Mobile pairing and session UX
+- Owner: shared
+- Size: L
+- Depends on: ADHD2-1103
+- Done when:
+  - phone users can pair and maintain a session through the app UI
+
+### ADHD2-1302 Mobile operational parity
+- Owner: agent
+- Size: L
+- Depends on: ADHD2-1301
+- Done when:
+  - mobile users can operate jobs and approvals with parity to the mobile API surface
+
+## Phase 14: Dictation Intake
+
+### ADHD2-1401 Press-to-talk capture flow
+- Owner: shared
+- Size: L
+- Depends on: ADHD2-1202, ADHD2-1302
+- Done when:
+  - microphone capture and transcript review exist in the app
+
+### ADHD2-1402 Intake provider abstraction
+- Owner: agent
+- Size: M
+- Depends on: ADHD2-1401
+- Done when:
+  - dictation and typed input share one downstream intake contract
+  - dictation providers are explicit and swappable
+
+## Phase 15: ASR Runtime Integration
+
+### ADHD2-1501 Desktop `Whispr` runtime integration
+- Owner: shared
+- Size: L
+- Depends on: ADHD2-1402
+- Done when:
+  - desktop dictation can run through a bundled local runtime boundary
+  - runtime health and failure modes are surfaced clearly
+
+### ADHD2-1502 Mobile-native dictation boundary
+- Owner: agent
+- Size: L
+- Depends on: ADHD2-1402
+- Done when:
+  - mobile dictation does not assume desktop sidecar semantics
+  - native/provider integration boundaries are explicit
+
+## Phase 16: App Packaging and Onboarding
+
+### ADHD2-1601 Packaged app delivery
+- Owner: shared
+- Size: L
+- Depends on: ADHD2-1501, ADHD2-1502
+- Done when:
+  - installable desktop/mobile package targets are defined and testable
+
+### ADHD2-1602 First-run onboarding
+- Owner: shared
+- Size: L
+- Depends on: ADHD2-1601
+- Done when:
+  - the app provides first-run onboarding for Codex/runtime readiness
+  - terminal-first onboarding is no longer required for standard use

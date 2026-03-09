@@ -31,8 +31,11 @@ Define the stack for a federated ADHD architecture: one control plane orchestrat
 - Fallback: host-managed worker threads / bounded `codex exec`
 
 ### 5) UI Surfaces
+- Planned client shell: Tauri v2
 - Desktop and mobile clients talk to control plane
 - Host selection and host health must be first-class in UX
+- Desktop dictation can use a bundled local ASR/runtime boundary
+- Mobile dictation should use a native/mobile-appropriate integration boundary rather than assuming desktop sidecars
 
 ### 6) Data and Storage
 - Control plane SQLite:

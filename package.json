@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "workspaces": [
+    "apps/*"
+  ],
   "description": "ADHD phase-0 scaffold for federated control-plane and host-node orchestration",
   "scripts": {
     "health": "node scripts/health-check.mjs",
@@ -15,6 +18,9 @@
     "local:smoke": "node scripts/local-smoke.mjs",
     "host-api:start": "node scripts/start-host-api.mjs",
     "federation-api:start": "node scripts/start-federation-api.mjs",
+    "shell:dev": "npm run --workspace apps/adhd-shell tauri:dev",
+    "shell:web": "npm run --workspace apps/adhd-shell dev",
+    "shell:build": "npm run --workspace apps/adhd-shell build",
     "phase0:verify": "node scripts/health-check.mjs && node scripts/check-schemas.mjs && node scripts/check-compatibility.mjs",
     "phase1:verify": "node --test && node scripts/runtime-smoke.mjs",
     "phase2:verify": "node --test && node scripts/check-schemas.mjs && node scripts/docs-lint.mjs",
@@ -26,6 +32,7 @@
     "phase8:verify": "npm run phase7:verify && node --test test/workflow-store.test.js test/host-api.test.js test/federation-api.test.js",
     "phase9:verify": "npm run phase8:verify && node scripts/health-check.mjs --mode=both && node scripts/runtime-smoke.mjs",
     "phase10:verify": "npm run phase9:verify",
+    "phase11:verify": "npm run docs:lint && node scripts/check-phase11-scaffold.mjs && npm run shell:build && cargo check --manifest-path apps/adhd-shell/src-tauri/Cargo.toml",
     "docs:lint": "node scripts/docs-lint.mjs"
   }
 }

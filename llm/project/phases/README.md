@@ -4,7 +4,7 @@
 Track implementation from single-host baseline to multi-host orchestration.
 
 ## Phase Order
-This list is ordinal (`1..n`). The project phase names themselves are zero-based, so item `11` below is the document for `Phase 10`.
+This list is ordinal (`1..n`). The project phase names themselves are zero-based, so item `17` below is the document for `Phase 16`.
 1. `setup-phase.md`
 2. `session-runtime-phase.md`
 3. `intent-router-phase.md`
@@ -16,6 +16,12 @@ This list is ordinal (`1..n`). The project phase names themselves are zero-based
 9. `review-and-hardening-phase.md`
 10. `release-and-distribution-phase.md`
 11. `operations-and-sustainment-phase.md`
+12. `tauri-app-shell-phase.md`
+13. `desktop-client-phase.md`
+14. `mobile-client-phase.md`
+15. `dictation-intake-phase.md`
+16. `asr-runtime-integration-phase.md`
+17. `app-packaging-and-onboarding-phase.md`
 
 ## Execution Rules
 - Stabilize host-local runtime before federation features.
@@ -25,4 +31,5 @@ This list is ordinal (`1..n`). The project phase names themselves are zero-based
 
 ## Current Milestone
 - `operations-and-sustainment-phase.md` is complete.
-- No Phase 11 is defined yet; `Phase 10` is the latest defined project phase.
+- `tauri-app-shell-phase.md` is complete.
+- Phases 12 through 16 are now planned and documented.

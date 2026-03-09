@@ -24,6 +24,12 @@ const REQUIRED = [
   "llm/project/phases/review-and-hardening-phase.md",
   "llm/project/phases/release-and-distribution-phase.md",
   "llm/project/phases/operations-and-sustainment-phase.md",
+  "llm/project/phases/tauri-app-shell-phase.md",
+  "llm/project/phases/desktop-client-phase.md",
+  "llm/project/phases/mobile-client-phase.md",
+  "llm/project/phases/dictation-intake-phase.md",
+  "llm/project/phases/asr-runtime-integration-phase.md",
+  "llm/project/phases/app-packaging-and-onboarding-phase.md",
   "llm/workflows/phase-0-bootstrap.md",
   "llm/workflows/phase-3-mvp-operator.md",
   "llm/workflows/phase-4-mobile-operator.md",
@@ -33,7 +39,8 @@ const REQUIRED = [
   "llm/workflows/phase-8-hardening-operator.md",
   "llm/workflows/phase-9-host-bootstrap.md",
   "llm/workflows/phase-9-workflow-rollout.md",
-  "llm/workflows/phase-10-operations-operator.md"
+  "llm/workflows/phase-10-operations-operator.md",
+  "llm/workflows/phase-11-tauri-shell-bootstrap.md"
 ];
 
 const cwd = process.cwd();

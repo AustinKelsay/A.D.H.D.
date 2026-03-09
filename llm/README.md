@@ -12,7 +12,8 @@ Source of truth for project planning, phase execution, and implementation contra
 ## Current Milestone
 - Phase 9 (release and distribution) is complete.
 - Phase 10 (operations and sustainment) is complete.
-- No Phase 11 is defined yet.
+- Phase 11 (Tauri app shell) is complete.
+- Phases 12 through 16 are planned.
 - Current checkpoint for next work: `project/phase-11-planning-checkpoint.md`
 
 ## Folder Intent
@@ -45,6 +46,12 @@ Source of truth for project planning, phase execution, and implementation contra
 - `project/phases/review-and-hardening-phase.md`
 - `project/phases/release-and-distribution-phase.md`
 - `project/phases/operations-and-sustainment-phase.md`
+- `project/phases/tauri-app-shell-phase.md`
+- `project/phases/desktop-client-phase.md`
+- `project/phases/mobile-client-phase.md`
+- `project/phases/dictation-intake-phase.md`
+- `project/phases/asr-runtime-integration-phase.md`
+- `project/phases/app-packaging-and-onboarding-phase.md`
 - `workflows/phase-0-bootstrap.md`
 - `workflows/phase-3-mvp-operator.md`
 - `workflows/phase-4-mobile-operator.md`
@@ -55,6 +62,7 @@ Source of truth for project planning, phase execution, and implementation contra
 - `workflows/phase-9-host-bootstrap.md`
 - `workflows/phase-9-workflow-rollout.md`
 - `workflows/phase-10-operations-operator.md`
+- `workflows/phase-11-tauri-shell-bootstrap.md`
 
 ## Phase 0 Commands
 - `npm run health`
@@ -153,3 +161,18 @@ Source of truth for project planning, phase execution, and implementation contra
 ## Phase 10 Outcome
 - repeatable post-release canary and soak checks are documented against current host and federation health/metrics
 - daily operational review, incident triage, and maintenance procedures are documented against the live API surface
+
+## Phase 11 Outcome Target
+- a Tauri v2 shell exists as the foundation for desktop and later mobile ADHD clients
+- the shell can display backend readiness against the current host/federation stack
+
+## Phase 11 Outcome
+- a desktop-first Tauri v2 shell exists under `apps/adhd-shell`
+- the shell can read host and federation readiness using the current backend health endpoints
+- the shell workspace is buildable from the root repo and the Rust/Tauri side compiles
+
+## Phase 11 Commands
+- `npm run phase11:verify`
+
+## Phase 11 Runbook
+- `workflows/phase-11-tauri-shell-bootstrap.md`
