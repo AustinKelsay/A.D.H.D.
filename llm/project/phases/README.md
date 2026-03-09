@@ -32,4 +32,6 @@ This list is ordinal (`1..n`). The project phase names themselves are zero-based
 ## Current Milestone
 - `operations-and-sustainment-phase.md` is complete.
 - `tauri-app-shell-phase.md` is complete.
-- Phases 12 through 16 are now planned and documented.
+- `desktop-client-phase.md` is complete.
+- `mobile-client-phase.md` is the next planned phase.
+- Phases 14 through 16 are now planned and documented.

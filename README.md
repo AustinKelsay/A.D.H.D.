@@ -77,8 +77,14 @@ curl -sS http://127.0.0.1:8788/metrics
   - one-command bring-up, health verification, and basic end-to-end smoke
 - `npm run local:up`
   - keep both local services running for manual exploration
+- `npm run shell:web`
+  - run the Phase 12 desktop client in the browser against the local backend
+- `npm run shell:dev`
+  - launch the native Tauri desktop shell
 - `npm run health`
   - verify local runtime prerequisites
+- `npm run phase12:verify`
+  - verify the desktop client, frontend tests, and Tauri/Rust compile path
 - `npm run phase10:verify`
   - run the full project verification chain
 
@@ -133,6 +139,32 @@ curl -sS http://127.0.0.1:8788/api/jobs/<jobId>/live
 curl -sS http://127.0.0.1:8788/api/jobs/<jobId>/result
 ```
 
+## Desktop Client
+
+After `npm run local:up`, you can use the Phase 12 desktop client instead of `curl`.
+
+Browser shell:
+
+```bash
+npm run shell:web
+```
+
+Native Tauri shell:
+
+```bash
+npm run shell:dev
+```
+
+The desktop client currently includes:
+- host and federation health cards
+- create-job intake form
+- host selection
+- recent jobs list
+- selected-job detail view
+- start, interrupt, retry, and retry-start actions
+- approval and rejection actions
+- result summary and artifact listing
+
 ## Deeper Runbooks
 
 For rollout, hardening, and operations details:
@@ -140,3 +172,5 @@ For rollout, hardening, and operations details:
 - [Phase 9 Bootstrap](./llm/workflows/phase-9-host-bootstrap.md)
 - [Phase 9 Rollout](./llm/workflows/phase-9-workflow-rollout.md)
 - [Phase 10 Operations](./llm/workflows/phase-10-operations-operator.md)
+- [Phase 11 Shell Bootstrap](./llm/workflows/phase-11-tauri-shell-bootstrap.md)
+- [Phase 12 Desktop Client](./llm/workflows/phase-12-desktop-client-operator.md)

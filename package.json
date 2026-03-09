@@ -21,6 +21,7 @@
     "shell:dev": "npm run --workspace apps/adhd-shell tauri:dev",
     "shell:web": "npm run --workspace apps/adhd-shell dev",
     "shell:build": "npm run --workspace apps/adhd-shell build",
+    "shell:test": "npm run --workspace apps/adhd-shell test",
     "phase0:verify": "node scripts/health-check.mjs && node scripts/check-schemas.mjs && node scripts/check-compatibility.mjs",
     "phase1:verify": "node --test && node scripts/runtime-smoke.mjs",
     "phase2:verify": "node --test && node scripts/check-schemas.mjs && node scripts/docs-lint.mjs",
@@ -33,6 +34,7 @@
     "phase9:verify": "npm run phase8:verify && node scripts/health-check.mjs --mode=both && node scripts/runtime-smoke.mjs",
     "phase10:verify": "npm run phase9:verify",
     "phase11:verify": "npm run docs:lint && node scripts/check-phase11-scaffold.mjs && npm run shell:build && cargo check --manifest-path apps/adhd-shell/src-tauri/Cargo.toml",
+    "phase12:verify": "npm run phase11:verify && npm run shell:test",
     "docs:lint": "node scripts/docs-lint.mjs"
   }
 }

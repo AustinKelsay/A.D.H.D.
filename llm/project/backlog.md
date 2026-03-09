@@ -317,6 +317,7 @@
 - Owner: shared
 - Size: L
 - Depends on: ADHD2-1103
+- Status: done
 - Done when:
   - desktop users can create jobs and inspect job lists/details from the app
 
@@ -324,6 +325,7 @@
 - Owner: agent
 - Size: L
 - Depends on: ADHD2-1201
+- Status: done
 - Done when:
   - desktop users can start, interrupt, retry, and approve jobs from the app
 

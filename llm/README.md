@@ -13,8 +13,10 @@ Source of truth for project planning, phase execution, and implementation contra
 - Phase 9 (release and distribution) is complete.
 - Phase 10 (operations and sustainment) is complete.
 - Phase 11 (Tauri app shell) is complete.
-- Phases 12 through 16 are planned.
-- Current checkpoint for next work: `project/phase-11-planning-checkpoint.md`
+- Phase 12 (desktop client) is complete.
+- Phase 13 is the next planned phase.
+- Phases 14 through 16 remain planned.
+- Current checkpoint for next work: `project/phases/mobile-client-phase.md`
 
 ## Folder Intent
 - `project/` - canonical product and architecture definitions.
@@ -63,6 +65,7 @@ Source of truth for project planning, phase execution, and implementation contra
 - `workflows/phase-9-workflow-rollout.md`
 - `workflows/phase-10-operations-operator.md`
 - `workflows/phase-11-tauri-shell-bootstrap.md`
+- `workflows/phase-12-desktop-client-operator.md`
 
 ## Phase 0 Commands
 - `npm run health`
@@ -176,3 +179,16 @@ Source of truth for project planning, phase execution, and implementation contra
 
 ## Phase 11 Runbook
 - `workflows/phase-11-tauri-shell-bootstrap.md`
+
+## Phase 12 Outcome Target
+- a desktop operator can use the shell for intake, job inspection, controls, and approvals without dropping to curl
+
+## Phase 12 Outcome
+- the shell now provides a real desktop operator surface for intake, job detail, approvals, and result review
+- desktop workflows are routed through a shared federation API client and tested in the shell workspace
+
+## Phase 12 Commands
+- `npm run phase12:verify`
+
+## Phase 12 Runbook
+- `workflows/phase-12-desktop-client-operator.md`

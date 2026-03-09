@@ -1,10 +1,10 @@
-export type EndpointConfig = {
-  label: string;
-  baseUrl: string;
-  healthPath: string;
-};
+import type { EndpointConfig } from "./types";
+import type { ServiceName } from "./types";
 
 function readMetaOverride(name: string): string | null {
+  if (typeof document === "undefined") {
+    return null;
+  }
   const value = document
     .querySelector(`meta[name="${name}"]`)
     ?.getAttribute("content")
@@ -36,4 +36,9 @@ export function createDefaultEndpoints(): EndpointConfig[] {
       healthPath: "/health"
     }
   ];
+}
+
+export function resolveServiceBaseUrl(service: ServiceName): string {
+  const endpoints = createDefaultEndpoints();
+  return service === "host" ? endpoints[0].baseUrl : endpoints[1].baseUrl;
 }

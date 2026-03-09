@@ -40,7 +40,8 @@ const REQUIRED = [
   "llm/workflows/phase-9-host-bootstrap.md",
   "llm/workflows/phase-9-workflow-rollout.md",
   "llm/workflows/phase-10-operations-operator.md",
-  "llm/workflows/phase-11-tauri-shell-bootstrap.md"
+  "llm/workflows/phase-11-tauri-shell-bootstrap.md",
+  "llm/workflows/phase-12-desktop-client-operator.md"
 ];
 
 const cwd = process.cwd();
