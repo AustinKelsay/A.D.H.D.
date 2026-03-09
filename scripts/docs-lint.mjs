@@ -4,7 +4,9 @@ import path from "node:path";
 import process from "node:process";
 
 const REQUIRED = [
+  "README.md",
   "llm/project/project-overview.md",
+  "llm/project/phase-11-planning-checkpoint.md",
   "llm/project/user-flow.md",
   "llm/project/tech-stack.md",
   "llm/project/project-rules.md",

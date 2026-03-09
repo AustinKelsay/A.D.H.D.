@@ -3,6 +3,23 @@
 ## Goal
 Bring up a fresh control plane and host predictably, verify runtime readiness, and keep upgrade/rollback steps explicit.
 
+## Fast Local Path
+If you just want to prove the local stack works, do this first:
+
+```bash
+npm install
+npm run health
+npm run local:smoke
+```
+
+If you want both services kept running for manual testing:
+
+```bash
+npm run local:up
+```
+
+The simplified local scripts use one federation host by default (`h_alpha01`), bootstrap it automatically, and assign separate host/control-plane ports automatically.
+
 ## Compatibility Matrix
 - Node.js: 18+
 - Codex CLI: must support `app-server`, `mcp`, and `mcp-server`

@@ -11,6 +11,8 @@
     "compat:check": "node scripts/check-compatibility.mjs",
     "test": "node --test",
     "runtime:smoke": "node scripts/runtime-smoke.mjs",
+    "local:up": "node scripts/local-up.mjs",
+    "local:smoke": "node scripts/local-smoke.mjs",
     "host-api:start": "node scripts/start-host-api.mjs",
     "federation-api:start": "node scripts/start-federation-api.mjs",
     "phase0:verify": "node scripts/health-check.mjs && node scripts/check-schemas.mjs && node scripts/check-compatibility.mjs",

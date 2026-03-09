@@ -106,6 +106,10 @@ async function main() {
     codexPolicy.command,
     process.env.ADHD_CODEX_BIN || "codex"
   );
+  const rpcRequestTimeoutMs = envPositiveInt(
+    "ADHD_RPC_REQUEST_TIMEOUT_MS",
+    codexPolicy.readTimeoutMs
+  );
   const mobileRuntimeConfig = {
     enabled: envBoolean("ADHD_MOBILE_ENABLED", true),
     pairingTtlMs: envPositiveInt("ADHD_MOBILE_PAIRING_TTL_MS", 5 * 60 * 1000),
@@ -131,7 +135,7 @@ async function main() {
   processManager.start();
 
   const rpcClient = processManager.createRpcClient({
-    requestTimeoutMs: codexPolicy.readTimeoutMs,
+    requestTimeoutMs: rpcRequestTimeoutMs,
     outgoingMode: rpcOutgoingMode
   });
 

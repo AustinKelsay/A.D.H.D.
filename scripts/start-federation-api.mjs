@@ -135,6 +135,10 @@ async function initializeHostRuntime({
     codexPolicy.command,
     process.env.ADHD_CODEX_BIN || "codex"
   );
+  const rpcRequestTimeoutMs = envPositiveInt(
+    "ADHD_RPC_REQUEST_TIMEOUT_MS",
+    codexPolicy.readTimeoutMs
+  );
   const processManager = new AppServerProcess({
     codexBin: codexCommand.codexBin,
     extraArgs: codexCommand.extraArgs,
@@ -159,7 +163,7 @@ async function initializeHostRuntime({
     processManager.start();
 
     rpcClient = processManager.createRpcClient({
-      requestTimeoutMs: codexPolicy.readTimeoutMs,
+      requestTimeoutMs: rpcRequestTimeoutMs,
       outgoingMode: rpcOutgoingMode
     });
 

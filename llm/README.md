@@ -3,10 +3,17 @@
 ## Purpose
 Source of truth for project planning, phase execution, and implementation contracts.
 
+## Fast Local Onboarding
+- `npm install`
+- `npm run health`
+- `npm run local:smoke`
+- `npm run local:up` when you want both services left running
+
 ## Current Milestone
 - Phase 9 (release and distribution) is complete.
 - Phase 10 (operations and sustainment) is complete.
 - No Phase 11 is defined yet.
+- Current checkpoint for next work: `project/phase-11-planning-checkpoint.md`
 
 ## Folder Intent
 - `project/` - canonical product and architecture definitions.
@@ -18,7 +25,9 @@ Source of truth for project planning, phase execution, and implementation contra
 - `../test/` - unit tests for runtime contracts.
 
 ## Current Required Docs
+- `../README.md`
 - `project/project-overview.md`
+- `project/phase-11-planning-checkpoint.md`
 - `project/user-flow.md`
 - `project/tech-stack.md`
 - `project/project-rules.md`
