@@ -163,7 +163,7 @@ function renderIntake(state: AppState): string {
           </label>
           <label class="field-stack">
             <span>Task</span>
-            <textarea id="intake-text" rows="3" placeholder="Describe the work you want ADHD to run.">${escapeHtml(state.intakeText)}</textarea>
+            <textarea id="intake-text" rows="3" placeholder="What do you want ADHD to do?">${escapeHtml(state.intakeText)}</textarea>
           </label>
           <label class="checkbox-row">
             <input id="auto-start" type="checkbox" ${state.autoStart ? "checked" : ""} />
@@ -178,7 +178,7 @@ function renderIntake(state: AppState): string {
 
 function renderHosts(state: AppState): string {
   if (state.hosts.length === 0) {
-    return `<p class="empty-state">No enrolled hosts visible.</p>`;
+    return `<p class="empty-state">No hosts online. They're probably vibing somewhere.</p>`;
   }
 
   return `
@@ -201,7 +201,7 @@ function renderHosts(state: AppState): string {
 
 function renderJobs(state: AppState): string {
   if (state.jobs.length === 0) {
-    return `<div class="job-list"><p class="empty-state">No jobs yet. Create one above.</p></div>`;
+    return `<div class="job-list"><p class="empty-state">No jobs yet. Throw something at the wall.</p></div>`;
   }
 
   return `
@@ -262,7 +262,7 @@ function renderApprovals(state: AppState): string {
     return `<p class="empty-state">Select a job to inspect approvals.</p>`;
   }
   if (state.pendingApprovals.length === 0) {
-    return `<div class="empty-state"><p class="empty-state__title">No pending approvals</p><p>This job has no approval requests waiting.</p></div>`;
+    return `<div class="empty-state"><p class="empty-state__title">All clear</p><p>No approvals waiting. You're good.</p></div>`;
   }
 
   return `
@@ -296,7 +296,7 @@ function renderResult(state: AppState): string {
       ? `<ul class="artifact-list">${state.artifactPaths
           .map((artifact) => `<li>${artifact}</li>`)
           .join("")}</ul>`
-      : `<div class="empty-state"><p class="empty-state__title">No artifacts</p><p>No artifacts recorded for this job.</p></div>`;
+      : `<div class="empty-state"><p class="empty-state__title">No artifacts</p><p>Nothing here yet.</p></div>`;
 
   return `
     <div class="result-panel">
@@ -317,13 +317,13 @@ function renderSelectedJob(state: AppState): string {
           <div class="detail-card__header">
             <div>
               <p class="eyebrow">Job Detail</p>
-              <h2>No job selected</h2>
+              <h2>Nothing selected</h2>
             </div>
           </div>
           <div class="detail-card__body">
             <div class="empty-state">
-              <p class="empty-state__title">Select a job</p>
-              <p>Choose a job from the sidebar to view details.</p>
+              <p class="empty-state__title">Nothing selected</p>
+              <p>Pick a job from the sidebar, or create something new.</p>
             </div>
           </div>
         </article>
@@ -511,7 +511,7 @@ function defaultState(): AppState {
     autoStart: true,
     rejectionMessage: "Rejected from desktop client",
     loading: false,
-    statusMessage: "Loading backend state...",
+    statusMessage: "Booting up...",
     errorMessage: null,
     healthDrawerOpen: false,
     intakeOpen: true,
