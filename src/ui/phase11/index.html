@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ADHD Operator Console</title>
+    <link rel="stylesheet" href="/ui/phase11/styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">Phase 11</p>
+          <h1>ADHD Operator Console</h1>
+          <p class="hero-copy">
+            Operate the control plane from one place: create work, watch hosts, resolve approvals,
+            and replay runs without dropping to raw API calls.
+          </p>
+        </div>
+        <form id="auth-form" class="auth-card">
+          <label class="field">
+            <span>Control-plane token</span>
+            <input id="token-input" type="password" autocomplete="off" placeholder="Optional Bearer token">
+          </label>
+          <div class="inline-actions">
+            <button type="submit">Save token</button>
+            <button type="button" id="clear-token-button" class="ghost">Clear</button>
+          </div>
+          <p id="connection-note" class="muted">Read-only routes work without a token unless your deployment enforces auth.</p>
+        </form>
+      </header>
+
+      <main class="layout">
+        <section class="panel summary-panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Overview</p>
+              <h2>Control Plane</h2>
+            </div>
+            <div class="inline-actions">
+              <label class="toggle">
+                <input id="auto-refresh-input" type="checkbox" checked>
+                <span>Auto refresh</span>
+              </label>
+              <button id="refresh-button" type="button">Refresh now</button>
+            </div>
+          </div>
+          <div id="summary-cards" class="summary-cards"></div>
+          <div id="status-banner" class="status-banner" hidden></div>
+        </section>
+
+        <section class="panel compose-panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Dispatch</p>
+              <h2>Create Job</h2>
+            </div>
+          </div>
+          <form id="create-job-form" class="stack">
+            <label class="field">
+              <span>Target host</span>
+              <select id="create-host-select"></select>
+            </label>
+            <label class="field">
+              <span>Task</span>
+              <textarea id="create-input-text" rows="5" placeholder="Describe the work you want ADHD to route and execute."></textarea>
+            </label>
+            <label class="toggle">
+              <input id="create-auto-start" type="checkbox">
+              <span>Start immediately after intake</span>
+            </label>
+            <div class="inline-actions">
+              <button type="submit">Dispatch job</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="panel jobs-panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Runs</p>
+              <h2>Jobs</h2>
+            </div>
+          </div>
+          <form id="jobs-filter-form" class="filters">
+            <label class="field compact">
+              <span>Host</span>
+              <select id="filter-host-select">
+                <option value="">All hosts</option>
+              </select>
+            </label>
+            <label class="field compact">
+              <span>State</span>
+              <select id="filter-state-select">
+                <option value="">All states</option>
+                <option value="draft">draft</option>
+                <option value="queued">queued</option>
+                <option value="dispatching">dispatching</option>
+                <option value="planning">planning</option>
+                <option value="awaiting_approval">awaiting_approval</option>
+                <option value="delegating">delegating</option>
+                <option value="running">running</option>
+                <option value="summarizing">summarizing</option>
+                <option value="completed">completed</option>
+                <option value="failed">failed</option>
+                <option value="cancelled">cancelled</option>
+              </select>
+            </label>
+            <label class="field grow">
+              <span>Search</span>
+              <input id="filter-query-input" type="search" placeholder="Search jobs, prompts, or summaries">
+            </label>
+            <div class="inline-actions">
+              <button type="submit">Apply</button>
+            </div>
+          </form>
+          <div id="jobs-table" class="table-shell"></div>
+        </section>
+
+        <section class="panel detail-panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Selected Run</p>
+              <h2>Job Detail</h2>
+            </div>
+            <div class="inline-actions">
+              <button id="detail-refresh-button" type="button" class="ghost">Refresh detail</button>
+            </div>
+          </div>
+          <div id="job-detail" class="detail-shell empty-state">
+            Select a job to inspect live state, results, and replay controls.
+          </div>
+        </section>
+
+        <section class="panel hosts-panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Fleet</p>
+              <h2>Hosts</h2>
+            </div>
+          </div>
+          <div id="hosts-list" class="host-grid"></div>
+        </section>
+
+        <section class="panel approvals-panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Human In The Loop</p>
+              <h2>Pending Approvals</h2>
+            </div>
+          </div>
+          <div id="approvals-list" class="stack"></div>
+        </section>
+
+        <section class="panel diagnostics-panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Diagnostics</p>
+              <h2>Host Detail</h2>
+            </div>
+          </div>
+          <div id="host-detail" class="detail-shell empty-state">
+            Pick a host card to inspect metrics and workflow status.
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script id="adhd-ui-config" type="application/json">__ADHD_UI_CONFIG__</script>
+    <script type="module" src="/ui/phase11/app.js"></script>
+  </body>
+</html>

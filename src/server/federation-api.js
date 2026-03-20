@@ -5,6 +5,7 @@ import { Readable } from "node:stream";
 import { RuntimeError } from "../runtime/errors.js";
 import { ALLOWED_JOB_STATES } from "./job-state-constants.js";
 import { createHostApiHandler } from "./host-api.js";
+import { resolveOperatorUiAsset } from "./operator-ui.js";
 
 export const HOST_ID_PATTERN = /^h_[a-z0-9]{6,}$/;
 const NON_TERMINAL_STATES = new Set([
@@ -1239,6 +1240,18 @@ export function createFederationApiHandler({
     try {
       const reqUrl = new URL(req.url, "http://127.0.0.1");
       const parts = pathParts(reqUrl);
+      const operatorUiAsset = resolveOperatorUiAsset(reqUrl, {
+        mode: "federation",
+        title: "ADHD Operator Console"
+      });
+
+      if (req.method === "GET" && operatorUiAsset) {
+        res.statusCode = 200;
+        res.setHeader("content-type", operatorUiAsset.contentType);
+        res.setHeader("cache-control", operatorUiAsset.cacheControl);
+        res.end(operatorUiAsset.body);
+        return;
+      }
 
       if (req.method === "GET" && reqUrl.pathname === "/metrics") {
         return json(res, 200, {
@@ -1444,6 +1457,59 @@ export function createFederationApiHandler({
         });
       }
 
+      if (req.method === "GET" && reqUrl.pathname === "/api/approvals") {
+        const hostIdFilter = reqUrl.searchParams.get("hostId") || null;
+        const jobIdFilter = reqUrl.searchParams.get("jobId") || null;
+        if (hostIdFilter) {
+          ensureHostId(hostIdFilter);
+          requireHostRecord(hostIdFilter);
+        }
+
+        const targetHostIds = hostIdFilter ? [hostIdFilter] : [...hostHandlers.keys()];
+        const approvals = [];
+
+        for (const hostId of targetHostIds) {
+          const hostHandler = hostHandlers.get(hostId);
+          if (!hostHandler) {
+            continue;
+          }
+
+          const query = new URLSearchParams();
+          if (jobIdFilter) {
+            query.set("jobId", jobIdFilter);
+          }
+
+          const response = await invokeHandler(hostHandler, {
+            method: "GET",
+            url: `/api/approvals${query.size > 0 ? `?${query.toString()}` : ""}`
+          });
+          if (response.statusCode !== 200 || !Array.isArray(response.json?.approvals)) {
+            continue;
+          }
+
+          for (const approval of response.json.approvals) {
+            approvals.push({
+              hostId,
+              ...clone(approval)
+            });
+          }
+        }
+
+        approvals.sort((left, right) => {
+          const leftHostId = String(left.hostId || "");
+          const rightHostId = String(right.hostId || "");
+          if (leftHostId !== rightHostId) {
+            return leftHostId.localeCompare(rightHostId);
+          }
+          return Number(left.requestId || 0) - Number(right.requestId || 0);
+        });
+
+        return json(res, 200, {
+          ok: true,
+          approvals
+        });
+      }
+
       if (req.method === "GET" && reqUrl.pathname === "/api/hosts") {
         const records = [...hostRecords.values()];
         for (const record of records) {
@@ -1454,6 +1520,76 @@ export function createFederationApiHandler({
           hosts: records
             .map((record) => sanitizeHostRecord(record))
             .sort((a, b) => a.hostId.localeCompare(b.hostId))
+        });
+      }
+
+      if (
+        req.method === "GET" &&
+        parts.length === 4 &&
+        parts[0] === "api" &&
+        parts[1] === "hosts" &&
+        parts[3] === "metrics"
+      ) {
+        const hostId = parts[2];
+        const record = requireHostRecord(hostId);
+        refreshHostHeartbeat(record);
+        const hostHandler = hostHandlers.get(hostId);
+        if (!hostHandler) {
+          throw new RuntimeError("HOST_NOT_READY", `No runtime bound for host: ${hostId}`);
+        }
+
+        const response = await invokeHandler(hostHandler, {
+          method: "GET",
+          url: "/metrics"
+        });
+        return json(res, response.statusCode, {
+          hostId,
+          host: sanitizeHostRecord(record),
+          ok: response.json?.ok !== false,
+          metrics: response.json?.metrics ?? null
+        });
+      }
+
+      if (
+        req.method === "POST" &&
+        parts.length === 5 &&
+        parts[0] === "api" &&
+        parts[1] === "hosts" &&
+        parts[3] === "workflow" &&
+        parts[4] === "refresh"
+      ) {
+        await assertControlPlaneAuthorized(req, {
+          path: reqUrl.pathname,
+          action: "host-workflow-refresh"
+        });
+        const hostId = parts[2];
+        const record = requireHostRecord(hostId);
+        refreshHostHeartbeat(record);
+
+        if (record.auth.status === "revoked") {
+          throw new RuntimeError("HOST_REVOKED", `Host is revoked: ${hostId}`);
+        }
+
+        const hostHandler = hostHandlers.get(hostId);
+        if (!hostHandler) {
+          throw new RuntimeError("HOST_NOT_READY", `No runtime bound for host: ${hostId}`);
+        }
+
+        const response = await invokeHandler(hostHandler, {
+          method: "POST",
+          url: "/api/workflow/refresh",
+          body: JSON.stringify({})
+        });
+
+        if (response.statusCode < 400 && response.json?.workflow) {
+          record.workflow = normalizeWorkflowSnapshot(response.json.workflow, nowIsoFromClock());
+          record.updatedAt = nowIsoFromClock();
+        }
+
+        return json(res, response.statusCode, {
+          hostId,
+          host: sanitizeHostRecord(record),
+          ...(response.json || { ok: false })
         });
       }
 
