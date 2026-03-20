@@ -1362,6 +1362,14 @@ export function createHostApiHandler({
         });
       }
 
+      if (req.method === "GET" && parts.length === 2 && parts[0] === "api" && parts[1] === "approvals") {
+        const jobId = reqUrl.searchParams.get("jobId") || null;
+        return json(res, 200, {
+          ok: true,
+          approvals: pendingApprovals(runtime, jobId)
+        });
+      }
+
       if (req.method === "GET" && parts.length === 2 && parts[0] === "api" && parts[1] === "jobs") {
         const query = parseJobsQuery(reqUrl);
         const result = filterAndPaginateJobs(runtime.listJobs(), query);

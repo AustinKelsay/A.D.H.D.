@@ -4,7 +4,7 @@
 Track implementation from single-host baseline to multi-host orchestration.
 
 ## Phase Order
-This list is ordinal (`1..n`). The project phase names themselves are zero-based, so item `11` below is the document for `Phase 10`.
+This list is ordinal (`1..n`). The project phase names themselves are zero-based, so item `11` below is the document for `Phase 10` and item `12` is the document for `Phase 11`.
 1. `setup-phase.md`
 2. `session-runtime-phase.md`
 3. `intent-router-phase.md`
@@ -16,6 +16,7 @@ This list is ordinal (`1..n`). The project phase names themselves are zero-based
 9. `review-and-hardening-phase.md`
 10. `release-and-distribution-phase.md`
 11. `operations-and-sustainment-phase.md`
+12. `phase-11-product-ui.md`
 
 ## Execution Rules
 - Stabilize host-local runtime before federation features.
@@ -24,5 +25,5 @@ This list is ordinal (`1..n`). The project phase names themselves are zero-based
 - Treat `WORKFLOW.md` as the repo-owned contract for prompt, runtime policy, and hooks; runtime behavior changes should flow through this contract.
 
 ## Current Milestone
-- `operations-and-sustainment-phase.md` is complete.
-- No Phase 11 is defined yet; `Phase 10` is the latest defined project phase.
+- `phase-11-product-ui.md` is complete.
+- No Phase 12 is defined yet; Phase 11 is the latest completed project phase.

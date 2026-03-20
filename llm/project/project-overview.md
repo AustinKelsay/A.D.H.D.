@@ -17,6 +17,11 @@ Dictate once, delegate reliably, across machines.
 
 You speak or type a task into ADHD. ADHD routes that task to a selected host node. That host runs a dedicated Codex conductor session (and workers) locally. ADHD provides unified control, approvals, and history from one app.
 
+## Current Delivery Focus
+- Phase 11 is complete: the control plane now serves an operator UI over the existing host and federation APIs.
+- The next product gaps are durability and deployment polish around the newly shipped UI surface.
+- Backend and federation behavior remain the system of record; the UI exposes them, not replaces them.
+
 ## Target Architecture
 1. Input layer
 - Desktop and phone clients submit tasks to ADHD control plane.

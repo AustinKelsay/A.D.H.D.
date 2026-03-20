@@ -1,0 +1,425 @@
+:root {
+  --bg: #f2ede3;
+  --bg-strong: #e7dcc7;
+  --panel: rgba(255, 252, 246, 0.86);
+  --panel-strong: #fff9ef;
+  --text: #1e221d;
+  --muted: #5c6758;
+  --line: rgba(40, 47, 39, 0.12);
+  --accent: #0e6b50;
+  --accent-strong: #0a503c;
+  --danger: #a33a2b;
+  --warning: #9a6200;
+  --focus: rgba(14, 107, 80, 0.3);
+  --shadow: 0 20px 50px rgba(54, 44, 24, 0.12);
+  --radius: 24px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  color: var(--text);
+  background:
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.7), transparent 36%),
+    radial-gradient(circle at top right, rgba(14, 107, 80, 0.18), transparent 28%),
+    linear-gradient(180deg, #fbf7ef 0%, var(--bg) 52%, #ddd3c2 100%);
+  font-family: "Avenir Next", "Segoe UI", sans-serif;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button {
+  border: none;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #f7f5ef;
+  padding: 0.7rem 1.1rem;
+  cursor: pointer;
+  transition: transform 140ms ease, background 140ms ease;
+}
+
+button:hover {
+  background: var(--accent-strong);
+  transform: translateY(-1px);
+}
+
+button:focus {
+  outline: 2px solid rgba(10, 80, 60, 0.7);
+  outline-offset: 2px;
+}
+
+button:focus-visible {
+  box-shadow: 0 0 0 4px var(--focus);
+}
+
+button.ghost {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--line);
+}
+
+button.danger {
+  background: var(--danger);
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+
+button:disabled:focus,
+button:disabled:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+input,
+select,
+textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--text);
+  padding: 0.85rem 0.95rem;
+}
+
+input:focus,
+input:focus-visible,
+select:focus,
+select:focus-visible,
+textarea:focus,
+textarea:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px var(--focus);
+}
+
+textarea {
+  resize: vertical;
+}
+
+.app-shell {
+  width: min(1480px, calc(100vw - 2rem));
+  margin: 0 auto;
+  padding: 1.4rem 0 3rem;
+}
+
+.hero {
+  display: grid;
+  grid-template-columns: 1.5fr minmax(260px, 360px);
+  gap: 1rem;
+  align-items: start;
+  margin-bottom: 1rem;
+}
+
+.hero h1,
+.panel h2 {
+  margin: 0;
+  font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+
+.hero h1 {
+  font-size: clamp(2.2rem, 5vw, 4.5rem);
+}
+
+.hero-copy,
+.muted {
+  color: var(--muted);
+}
+
+.eyebrow {
+  margin: 0 0 0.35rem;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--accent);
+  font-size: 0.78rem;
+}
+
+.auth-card,
+.panel {
+  background: var(--panel);
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(12px);
+}
+
+.auth-card {
+  padding: 1rem;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 1rem;
+}
+
+.panel {
+  padding: 1rem;
+}
+
+.summary-panel,
+.jobs-panel {
+  grid-column: span 12;
+}
+
+.compose-panel,
+.detail-panel,
+.diagnostics-panel {
+  grid-column: span 6;
+}
+
+.hosts-panel,
+.approvals-panel {
+  grid-column: span 6;
+}
+
+.panel-header,
+.inline-actions,
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.panel-header {
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.stack {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.filters {
+  display: grid;
+  grid-template-columns: minmax(160px, 220px) minmax(160px, 220px) 1fr auto;
+  gap: 0.8rem;
+  margin-bottom: 1rem;
+}
+
+.field {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.field span {
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.grow {
+  min-width: 0;
+}
+
+.summary-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.8rem;
+}
+
+.summary-card,
+.host-card,
+.approval-card,
+.detail-card,
+.table-row {
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.66);
+  border-radius: 20px;
+}
+
+.summary-card {
+  padding: 0.9rem;
+}
+
+.summary-card .value {
+  display: block;
+  font-size: 1.8rem;
+  font-weight: 700;
+  margin-top: 0.35rem;
+}
+
+.summary-card .label {
+  color: var(--muted);
+}
+
+.status-banner {
+  margin-top: 1rem;
+  padding: 0.9rem 1rem;
+  border-radius: 18px;
+  border: 1px solid rgba(154, 98, 0, 0.18);
+  background: rgba(255, 220, 142, 0.3);
+  color: #5e3f00;
+}
+
+.table-shell {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.table-row {
+  padding: 0.9rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) repeat(3, minmax(0, 0.7fr));
+  gap: 0.8rem;
+  align-items: center;
+  cursor: pointer;
+}
+
+.table-row:hover,
+.host-card:hover {
+  border-color: rgba(14, 107, 80, 0.35);
+}
+
+.table-row.selected,
+.host-card.selected {
+  outline: 2px solid rgba(14, 107, 80, 0.24);
+}
+
+.table-row .job-title {
+  font-weight: 700;
+}
+
+.table-row .job-subtitle {
+  color: var(--muted);
+  font-size: 0.9rem;
+  margin-top: 0.25rem;
+}
+
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.28rem 0.65rem;
+  border-radius: 999px;
+  background: rgba(14, 107, 80, 0.1);
+  color: var(--accent-strong);
+  font-size: 0.82rem;
+}
+
+.chip.warning {
+  background: rgba(154, 98, 0, 0.14);
+  color: #6f4700;
+}
+
+.chip.danger {
+  background: rgba(163, 58, 43, 0.12);
+  color: #7a291d;
+}
+
+.host-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 0.8rem;
+}
+
+.host-card,
+.approval-card,
+.detail-card {
+  padding: 0.95rem;
+}
+
+.host-card header,
+.approval-card header,
+.detail-card header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.detail-shell {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.detail-meta {
+  display: grid;
+  gap: 0.35rem;
+  color: var(--muted);
+  font-size: 0.93rem;
+}
+
+.detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.detail-copy,
+.empty-state {
+  color: var(--muted);
+}
+
+.empty-state {
+  padding: 1rem;
+  border: 1px dashed var(--line);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.artifact-list,
+.approval-card ul {
+  margin: 0;
+  padding-left: 1rem;
+}
+
+.artifact-list li + li {
+  margin-top: 0.35rem;
+}
+
+.toggle input {
+  width: auto;
+}
+
+@media (max-width: 1120px) {
+  .hero,
+  .layout,
+  .filters,
+  .detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .summary-panel,
+  .jobs-panel,
+  .compose-panel,
+  .detail-panel,
+  .hosts-panel,
+  .approvals-panel,
+  .diagnostics-panel {
+    grid-column: span 12;
+  }
+
+  .table-row {
+    grid-template-columns: 1fr;
+  }
+}

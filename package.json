@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "ADHD phase-0 scaffold for federated control-plane and host-node orchestration",
+  "description": "ADHD federated control-plane and host-node orchestration with operator UI",
   "scripts": {
     "health": "node scripts/health-check.mjs",
     "schemas:check": "node scripts/check-schemas.mjs",
@@ -24,6 +24,7 @@
     "phase8:verify": "npm run phase7:verify && node --test test/workflow-store.test.js test/host-api.test.js test/federation-api.test.js",
     "phase9:verify": "npm run phase8:verify && node scripts/health-check.mjs --mode=both && node scripts/runtime-smoke.mjs",
     "phase10:verify": "npm run phase9:verify",
+    "phase11:verify": "npm run phase10:verify && npm run docs:lint",
     "docs:lint": "node scripts/docs-lint.mjs"
   }
 }
