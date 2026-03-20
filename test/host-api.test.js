@@ -1651,6 +1651,30 @@ test("live route returns job with pending approvals for polling clients", async 
   assert.equal(live.json.pendingApprovals[0].requestId, 91);
 });
 
+test("approvals route returns pending approvals and supports job filter", async () => {
+  const runtime = new FakeRuntime();
+  const handler = createHostApiHandler({ runtime, hostId: "h_test" });
+  runtime.pending.push(
+    { requestId: 91, jobId: "j_live001", method: "approval/request" },
+    { requestId: 92, jobId: "j_other001", method: "approval/request" }
+  );
+
+  const allApprovals = await invoke(handler, {
+    method: "GET",
+    url: "/api/approvals"
+  });
+  assert.equal(allApprovals.statusCode, 200);
+  assert.equal(allApprovals.json.approvals.length, 2);
+
+  const filteredApprovals = await invoke(handler, {
+    method: "GET",
+    url: "/api/approvals?jobId=j_live001"
+  });
+  assert.equal(filteredApprovals.statusCode, 200);
+  assert.equal(filteredApprovals.json.approvals.length, 1);
+  assert.equal(filteredApprovals.json.approvals[0].requestId, 91);
+});
+
 test("result route returns persisted summary and artifacts", async () => {
   const runtime = new FakeRuntime();
   const handler = createHostApiHandler({ runtime, hostId: "h_test" });

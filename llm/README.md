@@ -6,7 +6,7 @@ Source of truth for project planning, phase execution, and implementation contra
 ## Current Milestone
 - Phase 9 (release and distribution) is complete.
 - Phase 10 (operations and sustainment) is complete.
-- No Phase 11 is defined yet.
+- Phase 11 (product UI) is complete.
 
 ## Folder Intent
 - `project/` - canonical product and architecture definitions.
@@ -36,6 +36,7 @@ Source of truth for project planning, phase execution, and implementation contra
 - `project/phases/review-and-hardening-phase.md`
 - `project/phases/release-and-distribution-phase.md`
 - `project/phases/operations-and-sustainment-phase.md`
+- `project/phases/phase-11-product-ui.md`
 - `workflows/phase-0-bootstrap.md`
 - `workflows/phase-3-mvp-operator.md`
 - `workflows/phase-4-mobile-operator.md`
@@ -46,6 +47,7 @@ Source of truth for project planning, phase execution, and implementation contra
 - `workflows/phase-9-host-bootstrap.md`
 - `workflows/phase-9-workflow-rollout.md`
 - `workflows/phase-10-operations-operator.md`
+- `workflows/phase-11-product-ui.md`
 
 ## Phase 0 Commands
 - `npm run health`
@@ -144,3 +146,9 @@ Source of truth for project planning, phase execution, and implementation contra
 ## Phase 10 Outcome
 - repeatable post-release canary and soak checks are documented against current host and federation health/metrics
 - daily operational review, incident triage, and maintenance procedures are documented against the live API surface
+
+## Phase 11
+- `project/phases/phase-11-product-ui.md`
+- `workflows/phase-11-product-ui.md`
+- `npm run phase11:verify`
+- Phase 11 ships the operator UI layer on top of the existing backend control plane.

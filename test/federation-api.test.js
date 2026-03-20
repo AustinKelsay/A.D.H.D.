@@ -256,7 +256,7 @@ async function invoke(handler, { method, url, body = null, headers = {} }) {
   await done;
 
   let json = null;
-  if (responseBody.trim()) {
+  if ((responseHeaders["content-type"] || "").includes("application/json") && responseBody.trim()) {
     json = JSON.parse(responseBody);
   }
 
@@ -1379,6 +1379,129 @@ test("approval routes are host-aware and forwarded to correct runtime", async ()
   assert.equal(betaRuntime.rejections.length, 1);
   assert.equal(betaRuntime.rejections[0].requestId, 77);
   assert.equal(alphaRuntime.rejections.length, 0);
+});
+
+test("approvals route aggregates pending approvals across hosts", async () => {
+  const alphaRuntime = new FakeRuntime("h_alpha01");
+  const betaRuntime = new FakeRuntime("h_bravo02");
+  alphaRuntime.pending.push({ requestId: 11, jobId: "j_alpha001", message: "Alpha approval" });
+  betaRuntime.pending.push({ requestId: 22, jobId: "j_beta001", message: "Beta approval" });
+
+  const handler = createFederationApiHandler({
+    hosts: {
+      h_alpha01: { runtime: alphaRuntime },
+      h_bravo02: { runtime: betaRuntime }
+    }
+  });
+
+  await registerEnrollAndHeartbeat(handler, "h_alpha01");
+  await registerEnrollAndHeartbeat(handler, "h_bravo02");
+
+  const allApprovals = await invoke(handler, {
+    method: "GET",
+    url: "/api/approvals"
+  });
+  assert.equal(allApprovals.statusCode, 200);
+  assert.equal(allApprovals.json.approvals.length, 2);
+  assert.deepEqual(
+    allApprovals.json.approvals.map((entry) => entry.hostId),
+    ["h_alpha01", "h_bravo02"]
+  );
+
+  const filteredApprovals = await invoke(handler, {
+    method: "GET",
+    url: "/api/approvals?jobId=j_beta001"
+  });
+  assert.equal(filteredApprovals.statusCode, 200);
+  assert.equal(filteredApprovals.json.approvals.length, 1);
+  assert.equal(filteredApprovals.json.approvals[0].hostId, "h_bravo02");
+  assert.equal(filteredApprovals.json.approvals[0].requestId, 22);
+});
+
+test("host metrics and workflow refresh routes proxy through federation", async () => {
+  const operatorToken = "cp_secret";
+  const runtime = new FakeRuntime("h_alpha01");
+  let refreshCalls = 0;
+  const handler = createFederationApiHandler({
+    hosts: {
+      h_alpha01: {
+        runtime,
+        getWorkflowStatus: () => ({
+          status: "loaded",
+          loaded: true,
+          contentHash: "wf_hash_123",
+          preflight: { ok: true }
+        }),
+        refreshWorkflow: () => {
+          refreshCalls += 1;
+          return {
+            ok: true,
+            changed: true
+          };
+        }
+      }
+    },
+    verifyControlPlaneToken: ({ headers }) => headers?.authorization === `Bearer ${operatorToken}`
+  });
+
+  await registerEnrollAndHeartbeat(handler, "h_alpha01", {
+    registerHeaders: {
+      authorization: `Bearer ${operatorToken}`
+    }
+  });
+
+  const metrics = await invoke(handler, {
+    method: "GET",
+    url: "/api/hosts/h_alpha01/metrics"
+  });
+  assert.equal(metrics.statusCode, 200);
+  assert.equal(metrics.json.hostId, "h_alpha01");
+  assert.equal(typeof metrics.json.metrics.requestsTotal, "number");
+
+  const unauthorizedRefresh = await invoke(handler, {
+    method: "POST",
+    url: "/api/hosts/h_alpha01/workflow/refresh",
+    body: JSON.stringify({})
+  });
+  assert.equal(unauthorizedRefresh.statusCode, 401);
+  assert.equal(unauthorizedRefresh.json.error.code, "CONTROL_PLANE_UNAUTHORIZED");
+
+  const authorizedRefresh = await invoke(handler, {
+    method: "POST",
+    url: "/api/hosts/h_alpha01/workflow/refresh",
+    headers: {
+      authorization: `Bearer ${operatorToken}`
+    },
+    body: JSON.stringify({})
+  });
+  assert.equal(authorizedRefresh.statusCode, 200);
+  assert.equal(authorizedRefresh.json.refresh.changed, true);
+  assert.equal(refreshCalls, 1);
+});
+
+test("operator ui shell and assets are served from federation root", async () => {
+  const handler = createFederationApiHandler({
+    hosts: {
+      h_alpha01: { runtime: new FakeRuntime("h_alpha01") }
+    }
+  });
+
+  const html = await invoke(handler, {
+    method: "GET",
+    url: "/"
+  });
+  assert.equal(html.statusCode, 200);
+  assert.match(html.headers["content-type"], /text\/html/);
+  assert.match(html.body, /ADHD Operator Console/);
+  assert.match(html.body, /ui\/phase11\/app\.js/);
+
+  const script = await invoke(handler, {
+    method: "GET",
+    url: "/ui/phase11/app.js"
+  });
+  assert.equal(script.statusCode, 200);
+  assert.match(script.headers["content-type"], /text\/javascript/);
+  assert.match(script.body, /refreshDashboard/);
 });
 
 test("invalid hostId format is rejected for register and dispatch", async () => {
