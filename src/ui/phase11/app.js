@@ -77,7 +77,14 @@ function readJson(response) {
     if (!rawText.trim()) {
       return null;
     }
-    return JSON.parse(rawText);
+    try {
+      return JSON.parse(rawText);
+    } catch (error) {
+      const snippet = rawText.length > 200 ? `${rawText.slice(0, 197)}...` : rawText;
+      throw new Error(
+        `Failed to parse JSON response: ${error?.message || "unknown parse error"}; body=${snippet}`
+      );
+    }
   });
 }
 
@@ -338,14 +345,6 @@ function renderJobs() {
       <div>${escapeHtml(formatDate(job.timestamps?.updatedAt))}</div>
     </article>
   `).join("");
-
-  for (const row of elements.jobsTable.querySelectorAll("[data-job-id]")) {
-    row.addEventListener("click", async () => {
-      state.selectedJobId = row.dataset.jobId;
-      await refreshSelectedJob();
-      render();
-    });
-  }
 }
 
 function renderHosts() {
@@ -637,11 +636,15 @@ async function runAction(label, callback) {
   }
 }
 
-function startPolling() {
+function clearPollingTimer() {
   if (state.timerId !== null) {
     window.clearInterval(state.timerId);
     state.timerId = null;
   }
+}
+
+function startPolling() {
+  clearPollingTimer();
   if (!state.autoRefresh) {
     return;
   }
@@ -652,6 +655,17 @@ function startPolling() {
 
 function bindEvents() {
   elements.tokenInput.value = state.token;
+
+  elements.jobsTable.addEventListener("click", async (event) => {
+    const row = event.target.closest("[data-job-id]");
+    if (!row || !elements.jobsTable.contains(row)) {
+      return;
+    }
+
+    state.selectedJobId = row.dataset.jobId || null;
+    await refreshSelectedJob();
+    render();
+  });
 
   elements.authForm.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -716,6 +730,10 @@ function bindEvents() {
     state.filters.state = elements.filterStateSelect.value;
     state.filters.q = elements.filterQueryInput.value.trim();
     await refreshDashboard({ forceDetail: true });
+  });
+
+  window.addEventListener("beforeunload", () => {
+    clearPollingTimer();
   });
 }
 

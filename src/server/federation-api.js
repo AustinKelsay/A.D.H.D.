@@ -1468,10 +1468,10 @@ export function createFederationApiHandler({
         const targetHostIds = hostIdFilter ? [hostIdFilter] : [...hostHandlers.keys()];
         const approvals = [];
 
-        for (const hostId of targetHostIds) {
+        const approvalResponses = await Promise.all(targetHostIds.map(async (hostId) => {
           const hostHandler = hostHandlers.get(hostId);
           if (!hostHandler) {
-            continue;
+            return null;
           }
 
           const query = new URLSearchParams();
@@ -1479,17 +1479,28 @@ export function createFederationApiHandler({
             query.set("jobId", jobIdFilter);
           }
 
-          const response = await invokeHandler(hostHandler, {
-            method: "GET",
-            url: `/api/approvals${query.size > 0 ? `?${query.toString()}` : ""}`
-          });
-          if (response.statusCode !== 200 || !Array.isArray(response.json?.approvals)) {
+          try {
+            const response = await invokeHandler(hostHandler, {
+              method: "GET",
+              url: `/api/approvals${query.size > 0 ? `?${query.toString()}` : ""}`
+            });
+            return {
+              hostId,
+              response
+            };
+          } catch {
+            return null;
+          }
+        }));
+
+        for (const entry of approvalResponses) {
+          if (!entry || entry.response.statusCode !== 200 || !Array.isArray(entry.response.json?.approvals)) {
             continue;
           }
 
-          for (const approval of response.json.approvals) {
+          for (const approval of entry.response.json.approvals) {
             approvals.push({
-              hostId,
+              hostId: entry.hostId,
               ...clone(approval)
             });
           }

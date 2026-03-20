@@ -10,6 +10,7 @@
   --accent-strong: #0a503c;
   --danger: #a33a2b;
   --warning: #9a6200;
+  --focus: rgba(14, 107, 80, 0.3);
   --shadow: 0 20px 50px rgba(54, 44, 24, 0.12);
   --radius: 24px;
 }
@@ -55,6 +56,15 @@ button:hover {
   transform: translateY(-1px);
 }
 
+button:focus {
+  outline: 2px solid rgba(10, 80, 60, 0.7);
+  outline-offset: 2px;
+}
+
+button:focus-visible {
+  box-shadow: 0 0 0 4px var(--focus);
+}
+
 button.ghost {
   background: transparent;
   color: var(--text);
@@ -71,6 +81,12 @@ button:disabled {
   transform: none;
 }
 
+button:disabled:focus,
+button:disabled:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
 input,
 select,
 textarea {
@@ -80,6 +96,16 @@ textarea {
   background: rgba(255, 255, 255, 0.72);
   color: var(--text);
   padding: 0.85rem 0.95rem;
+}
+
+input:focus,
+input:focus-visible,
+select:focus,
+select:focus-visible,
+textarea:focus,
+textarea:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px var(--focus);
 }
 
 textarea {
